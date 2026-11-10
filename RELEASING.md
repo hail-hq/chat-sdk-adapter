@@ -19,7 +19,7 @@ npm pack --dry-run
 
 Chat SDK is MIT-licensed and compatible with the adapter's AGPL-3.0-only license.
 The package contains its ESM build, TypeScript declarations, README, and license.
-Before publication, test an actual signed delivery and reply using an authorized test number and credits.
+Before publication, run the [live SMS test](LIVE_TEST.md) using an authorized test number and credits.
 The automated tests use the real Chat runtime and a fake Hail HTTP transport; they do not establish carrier delivery.
 
 ## Publish the package

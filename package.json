@@ -44,8 +44,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm test && pnpm typecheck && pnpm build",
-    "format": "prettier --write src test examples README.md ANNOUNCEMENT.md RELEASING.md package.json tsconfig.json pnpm-workspace.yaml",
-    "format:check": "prettier --check src test examples README.md ANNOUNCEMENT.md RELEASING.md package.json tsconfig.json pnpm-workspace.yaml"
+    "format": "prettier --write src test scripts examples README.md ANNOUNCEMENT.md RELEASING.md LIVE_TEST.md package.json tsconfig.json pnpm-workspace.yaml",
+    "format:check": "prettier --check src test scripts examples README.md ANNOUNCEMENT.md RELEASING.md LIVE_TEST.md package.json tsconfig.json pnpm-workspace.yaml",
+    "test:live": "pnpm build && node scripts/live-sms-e2e.mjs"
   },
   "peerDependencies": {
     "chat": "^4.44.0"
