@@ -3,9 +3,9 @@ import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { createHailAdapter } from "../dist/index.js";
 import { createLiveProbe } from "./live-sms-probe.mjs";
+import { itemsFromPages, pollUntil } from "./live-sms-utils.mjs";
 
 class LiveTestError extends Error {}
 
@@ -102,23 +102,20 @@ let probe,
   server,
   subscriptionId,
   createAttempted = false;
-async function until(check, milliseconds) {
-  const deadline = Date.now() + milliseconds;
-  while (Date.now() < deadline && !abort.signal.aborted) {
-    const value = await check();
-    if (value) return value;
-    await delay(500, undefined, { signal: abort.signal });
-  }
-  throw new LiveTestError(
-    abort.signal.aborted ? "Live test interrupted" : "Live test timed out",
-  );
-}
+const until = (check, milliseconds) =>
+  pollUntil(check, milliseconds, { signal: abort.signal });
+
 try {
   const identity = await api("/v1/whoami");
   if (!identity.organization_id || identity.auth_kind === "shared")
     throw new LiveTestError("Use an organization-scoped Hail credential");
-  const numbers = await api("/v1/numbers?limit=200");
-  const number = numbers.items?.find((item) => item.e164 === from);
+  let number;
+  for await (const item of itemsFromPages(api, "/v1/numbers?limit=200")) {
+    if (item.e164 === from) {
+      number = item;
+      break;
+    }
+  }
   if (
     !number ||
     number.provisioning_state !== "active" ||
@@ -251,16 +248,19 @@ try {
   }, 2 * 60_000);
   report.carrierDeliveryConfirmed = true;
   await until(async () => {
-    const deliveries = await api(
+    for await (const item of itemsFromPages(
+      api,
       `/v1/webhooks/${encodeURIComponent(subscriptionId)}/deliveries?limit=200`,
-    );
-    return deliveries.items?.some(
-      (item) =>
+    )) {
+      if (
         item.event_id === state.inboundId &&
         item.event_type === "sms.received" &&
         item.status === "succeeded" &&
-        item.response_status === 200,
-    );
+        item.response_status === 200
+      )
+        return true;
+    }
+    return false;
   }, 30_000);
   report.signedWebhookDeliveryVerified = true;
   report.passed = true;
@@ -271,7 +271,9 @@ try {
       ? error.message
       : error?.name === "AbortError"
         ? "Live test interrupted"
-        : "Live test failed; no private error details were recorded";
+        : error?.name === "LiveTestTimeout"
+          ? "Live test timed out"
+          : "Live test failed; no private error details were recorded";
   process.exitCode = 1;
 } finally {
   if (server?.listening)
@@ -282,11 +284,15 @@ try {
   if (probe) await probe.shutdown();
   if (createAttempted) {
     try {
-      const ids = subscriptionId
-        ? [subscriptionId]
-        : (await api("/v1/webhooks?limit=200")).items
-            .filter((item) => item.target_url === String(target))
-            .map((item) => item.id);
+      const ids = subscriptionId ? [subscriptionId] : [];
+      if (!subscriptionId) {
+        for await (const item of itemsFromPages(
+          api,
+          "/v1/webhooks?limit=200",
+        )) {
+          if (item.target_url === String(target)) ids.push(item.id);
+        }
+      }
       for (const id of ids)
         await api(`/v1/webhooks/${encodeURIComponent(id)}`, "DELETE");
       report.webhookRemoved = true;
@@ -295,6 +301,11 @@ try {
       report.passed = false;
       process.exitCode = 1;
     }
+  }
+  if (abort.signal.aborted) {
+    report.passed = false;
+    report.error = "Live test interrupted";
+    process.exitCode = 1;
   }
   report.finishedAt = new Date().toISOString();
   writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n", {
