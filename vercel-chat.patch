@@ -1,5 +1,5 @@
 Prepared against vercel/chat 09cb11eca12de74e99dcad96b1c9876f63e0c54b
-Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/3fd6cf23ac1f1010a0eea62367d4ed5576e22cc3
+Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/4aff103a7b8cd16be505e8aaf7a72fb0c22c6242
 Listing submission requires npm publication, live Hail docs, and a public announcement.
 
 diff --git a/.changeset/hail-adapter.md b/.changeset/hail-adapter.md
@@ -214,7 +214,7 @@ index ae88f7db..dd1d0b0a 100644
  /**
 diff --git a/packages/catalog/src/adapters/vendor-official/hail.ts b/packages/catalog/src/adapters/vendor-official/hail.ts
 new file mode 100644
-index 00000000..791a06b2
+index 00000000..5455ac89
 --- /dev/null
 +++ b/packages/catalog/src/adapters/vendor-official/hail.ts
 @@ -0,0 +1,61 @@
@@ -275,7 +275,7 @@ index 00000000..791a06b2
 +  packageName: "@hail-hq/chat-sdk-adapter",
 +  peerDeps: [],
 +  readme:
-+    "https://github.com/hail-hq/chat-sdk-adapter/tree/3fd6cf23ac1f1010a0eea62367d4ed5576e22cc3",
++    "https://github.com/hail-hq/chat-sdk-adapter/tree/4aff103a7b8cd16be505e8aaf7a72fb0c22c6242",
 +  slug: "hail",
 +  type: "platform",
 +} as const satisfies CatalogAdapter;
