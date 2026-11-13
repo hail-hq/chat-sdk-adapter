@@ -113,11 +113,25 @@ describe("webhooks", () => {
       (
         await adapter().handleWebhook(
           signed(
-            JSON.stringify({ ...event, data: { ...event.data, from: "bad" } }),
+            JSON.stringify({ ...event, data: { ...event.data, to: "bad" } }),
           ),
         )
       ).status,
     ).toBe(400);
+  });
+  it("acknowledges and skips senders or bodies it cannot map", async () => {
+    for (const data of [
+      { ...event.data, from: "AMAZON" },
+      { ...event.data, body: null },
+    ]) {
+      expect(
+        (
+          await adapter().handleWebhook(
+            signed(JSON.stringify({ ...event, data })),
+          )
+        ).status,
+      ).toBe(200);
+    }
   });
   it("ignores other events and other Hail numbers", async () => {
     expect(

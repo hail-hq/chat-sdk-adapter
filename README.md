@@ -1,7 +1,12 @@
 # Hail adapter for Chat SDK
 
-Send and receive SMS through [Vercel Chat SDK](https://chat-sdk.dev) using your Hail phone number.
-Requires Node.js 20+ and `chat ^4.44.0`. Hail maintains this adapter in its official repository.
+[Hail](https://hail.so) gives AI agents a phone number, an inbox, and a voice. It supports text messages, email, and inbound and outbound phone calls.
+
+This adapter connects Hail to [Vercel Chat SDK](https://chat-sdk.dev). The current release supports SMS: receive signed webhooks and reply through your Hail number using Chat SDK handlers. Hail's email and call APIs remain available directly; this adapter does not expose them yet.
+
+WhatsApp, iMessage, and other messaging channels are planned for Hail. Additional adapter capabilities will be documented as they ship.
+
+Requires Node.js 20+ and `chat` 4.44.0 or newer. Hail maintains this adapter in its official repository.
 
 ## Install
 
@@ -39,9 +44,17 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Use a persistent state adapter such as `@chat-adapter/state-redis` in production.
-The [Next.js example](https://github.com/hail-hq/chat-sdk-adapter/tree/main/examples/nextjs) uses memory for local development and Redis when `REDIS_URL` is set.
 The adapter uses Node's crypto module and does not support the Edge runtime.
+
+## State storage
+
+`REDIS_URL` is not a Hail API credential or a requirement of `createHailAdapter()`. It configures the Redis state adapter selected by the [Next.js example](https://github.com/hail-hq/chat-sdk-adapter/tree/main/examples/nextjs).
+
+Chat SDK uses its separate state adapter for message deduplication, conversation locks, thread subscriptions, and cached message history. The quick start uses `createMemoryState()`, which needs no external database. Its state is local to one process and disappears when that process restarts.
+
+For deployments with multiple instances or serverless functions, use a shared state adapter so those instances coordinate processing. Redis is one option; [PostgreSQL](https://chat-sdk.dev/adapters/official/postgres) is another. Choose the backend in the `Chat` instance's `state` option independently of the Hail adapter.
+
+The included Next.js example chooses Redis for production and requires `REDIS_URL` in that configuration. You can replace its state implementation with another shared backend; the Hail adapter configuration stays the same.
 
 ## Hail setup
 
