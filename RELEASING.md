@@ -51,7 +51,7 @@ Follow [Vercel's vendor-official requirements](https://chat-sdk.dev/docs/contrib
 
 Run the upstream catalog, CLI, and integration checks before opening a listing PR against `vercel/chat`.
 Include the published package, pinned source, product docs, and announcement links.
-Vercel requires verified signed commits and DCO sign-off. No SSH signing keys were registered for the current GitHub account when checked; verify commit signing before submission.
+Vercel requires verified signed commits and DCO sign-off. Verify commit signing before submission.
 The listing does not grant Vercel Connect registration or Vercel maintenance.
 
 ## Maintenance
