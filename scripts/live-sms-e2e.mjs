@@ -258,7 +258,7 @@ try {
         `/v1/webhooks/${encodeURIComponent(subscriptionId)}/deliveries?limit=200`,
       )) {
         if (
-          item.event_id === state.inboundId &&
+          (item.id === state.deliveryId || item.event_id === state.inboundId) &&
           item.event_type === "sms.received" &&
           item.status === "succeeded" &&
           item.response_status === 200

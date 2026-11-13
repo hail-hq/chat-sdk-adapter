@@ -49,7 +49,7 @@
     "test:live": "pnpm build && node --env-file=.env.live scripts/live-sms-e2e.mjs"
   },
   "peerDependencies": {
-    "chat": "^4.44.0"
+    "chat": ">=4.44.0"
   },
   "devDependencies": {
     "@chat-adapter/state-memory": "4.44.0",

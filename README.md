@@ -6,7 +6,7 @@ This adapter connects Hail to [Vercel Chat SDK](https://chat-sdk.dev). The curre
 
 WhatsApp, iMessage, and other messaging channels are planned for Hail. Additional adapter capabilities will be documented as they ship.
 
-Requires Node.js 20+ and `chat ^4.44.0`. Hail maintains this adapter in its official repository.
+Requires Node.js 20+ and `chat` 4.44.0 or newer. Hail maintains this adapter in its official repository.
 
 ## Install
 

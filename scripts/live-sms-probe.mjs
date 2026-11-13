@@ -39,6 +39,7 @@ export function createLiveProbe({ adapter, peerNumber, nonce }) {
   return {
     snapshot: () => ({ ...state }),
     handleWebhook(request) {
+      state.deliveryId ??= request.headers.get("x-hail-delivery") ?? undefined;
       return bot.webhooks.hail(request, {
         waitUntil(task) {
           pending.add(task);

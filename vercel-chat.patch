@@ -63,8 +63,8 @@ index 00000000..48bb3636
 +});
 +```
 +
-+Use a persistent state adapter such as [Redis](/adapters/official/redis) in production.
-+The adapter requires Node.js 20+ and `chat ^4.44.0`.
++Memory state works for a single process. Use a shared state adapter such as [Redis](/adapters/official/redis) when you run more than one instance.
++The adapter requires Node.js 20+ and `chat` 4.44.0 or newer.
 +
 +```typescript title="app/api/webhooks/hail/route.ts" lineNumbers
 +import { after } from "next/server";

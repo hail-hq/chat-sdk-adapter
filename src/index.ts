@@ -177,14 +177,15 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
       !record(data) ||
       typeof data.id !== "string" ||
       !UUID.test(data.id) ||
-      !phone(data.from) ||
       !phone(data.to) ||
-      typeof data.body !== "string" ||
       typeof event.created_at !== "string" ||
       !Number.isFinite(Date.parse(event.created_at))
     ) {
       return new Response("Invalid SMS event", { status: 400 });
     }
+    // Short codes, alphanumeric senders and MMS-only texts are valid events the adapter skips.
+    if (!phone(data.from) || typeof data.body !== "string")
+      return new Response(null, { status: 200 });
     if (data.to !== this.fromNumber())
       return new Response(null, { status: 200 });
     if (!this.chat)
