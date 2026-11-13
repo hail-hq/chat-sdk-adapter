@@ -102,8 +102,8 @@ let probe,
   server,
   subscriptionId,
   createAttempted = false;
-const until = (check, milliseconds) =>
-  pollUntil(check, milliseconds, { signal: abort.signal });
+const until = (check, milliseconds, intervalMs = 500) =>
+  pollUntil(check, milliseconds, { signal: abort.signal, intervalMs });
 
 try {
   const identity = await api("/v1/whoami");
@@ -228,40 +228,48 @@ try {
       "Inbound API record did not match the approved test challenge",
     );
   report.inboundApiVerified = true;
-  await until(async () => {
-    const outbound = await api(
-      `/v1/sms/${encodeURIComponent(state.outboundId)}`,
-    );
-    if (
-      outbound.from_e164 !== from ||
-      outbound.to_e164 !== peer ||
-      outbound.direction !== "outbound" ||
-      outbound.body !== `HAIL-E2E OK ${nonce}`
-    )
-      throw new LiveTestError(
-        "Outbound API record did not match the expected reply",
+  await until(
+    async () => {
+      const outbound = await api(
+        `/v1/sms/${encodeURIComponent(state.outboundId)}`,
       );
-    report.outboundStatus = outbound.status;
-    if (["failed", "undelivered"].includes(outbound.status))
-      throw new LiveTestError(`Carrier reported ${outbound.status}`);
-    return outbound.status === "delivered";
-  }, 2 * 60_000);
-  report.carrierDeliveryConfirmed = true;
-  await until(async () => {
-    for await (const item of itemsFromPages(
-      api,
-      `/v1/webhooks/${encodeURIComponent(subscriptionId)}/deliveries?limit=200`,
-    )) {
       if (
-        item.event_id === state.inboundId &&
-        item.event_type === "sms.received" &&
-        item.status === "succeeded" &&
-        item.response_status === 200
+        outbound.from_e164 !== from ||
+        outbound.to_e164 !== peer ||
+        outbound.direction !== "outbound" ||
+        outbound.body !== `HAIL-E2E OK ${nonce}`
       )
-        return true;
-    }
-    return false;
-  }, 30_000);
+        throw new LiveTestError(
+          "Outbound API record did not match the expected reply",
+        );
+      report.outboundStatus = outbound.status;
+      if (["failed", "undelivered"].includes(outbound.status))
+        throw new LiveTestError(`Carrier reported ${outbound.status}`);
+      return outbound.status === "delivered";
+    },
+    2 * 60_000,
+    2_000,
+  );
+  report.carrierDeliveryConfirmed = true;
+  await until(
+    async () => {
+      for await (const item of itemsFromPages(
+        api,
+        `/v1/webhooks/${encodeURIComponent(subscriptionId)}/deliveries?limit=200`,
+      )) {
+        if (
+          item.event_id === state.inboundId &&
+          item.event_type === "sms.received" &&
+          item.status === "succeeded" &&
+          item.response_status === 200
+        )
+          return true;
+      }
+      return false;
+    },
+    30_000,
+    2_000,
+  );
   report.signedWebhookDeliveryVerified = true;
   report.passed = true;
 } catch (error) {
@@ -281,7 +289,11 @@ try {
       server.close(resolve);
       server.closeAllConnections();
     });
-  if (probe) await probe.shutdown();
+  try {
+    if (probe) await probe.shutdown();
+  } catch {
+    // Cleanup of the temporary subscription below must still run.
+  }
   if (createAttempted) {
     try {
       const ids = subscriptionId ? [subscriptionId] : [];

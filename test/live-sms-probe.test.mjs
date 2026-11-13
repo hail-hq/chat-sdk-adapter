@@ -17,17 +17,17 @@ function request({
   sender = peer,
   body = `HAIL-E2E ${nonce}`,
   id = inboundId,
-  type = "sms.received",
-  key = secret,
 } = {}) {
   const payload = JSON.stringify({
     id: "delivery",
-    type,
+    type: "sms.received",
     created_at: new Date().toISOString(),
     data: { id, from: sender, to: from, body },
   });
   const t = Math.floor(Date.now() / 1000);
-  const mac = createHmac("sha256", key).update(`${t}.${payload}`).digest("hex");
+  const mac = createHmac("sha256", secret)
+    .update(`${t}.${payload}`)
+    .digest("hex");
   return new Request("http://localhost/webhook", {
     method: "POST",
     body: payload,
@@ -88,23 +88,6 @@ it("sends exactly one reply through the real Chat handler for the approved peer 
     outboundId,
     sendStarted: true,
   });
-});
-it("does not accept a forged delivery receipt", async () => {
-  const { value } = probe();
-  await value.handleWebhook(request());
-  await value.drain();
-  expect(
-    (
-      await value.handleWebhook(
-        request({ type: "sms.delivered", id: outboundId, key: "wrong" }),
-      )
-    ).status,
-  ).toBe(401);
-  expect(value.snapshot().deliveryConfirmed).toBe(false);
-  await value.handleWebhook(request({ type: "sms.delivered", id: inboundId }));
-  expect(value.snapshot().deliveryConfirmed).toBe(false);
-  await value.handleWebhook(request({ type: "sms.delivered", id: outboundId }));
-  expect(value.snapshot().deliveryConfirmed).toBe(true);
 });
 it("records send failures and does not retry a potentially chargeable send", async () => {
   const { value, fetch } = probe(

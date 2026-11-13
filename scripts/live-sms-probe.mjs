@@ -9,7 +9,7 @@ export function createLiveProbe({ adapter, peerNumber, nonce }) {
   ) {
     throw new Error("A valid peer number and test nonce are required");
   }
-  const state = { sendStarted: false, deliveryConfirmed: false };
+  const state = { sendStarted: false };
   const pending = new Set();
   const bot = new Chat({
     userName: "hail-e2e",
@@ -38,9 +38,8 @@ export function createLiveProbe({ adapter, peerNumber, nonce }) {
   });
   return {
     snapshot: () => ({ ...state }),
-    async handleWebhook(request) {
-      const copy = request.clone();
-      const response = await bot.webhooks.hail(request, {
+    handleWebhook(request) {
+      return bot.webhooks.hail(request, {
         waitUntil(task) {
           pending.add(task);
           task.then(
@@ -49,17 +48,6 @@ export function createLiveProbe({ adapter, peerNumber, nonce }) {
           );
         },
       });
-      if (response.status === 200) {
-        const event = await copy.json().catch(() => null);
-        if (
-          event?.type === "sms.delivered" &&
-          state.outboundId &&
-          event.data?.id === state.outboundId
-        ) {
-          state.deliveryConfirmed = true;
-        }
-      }
-      return response;
     },
     async drain() {
       while (pending.size) await Promise.allSettled([...pending]);
