@@ -112,7 +112,8 @@ Use HTTPS for remote servers. Requests have a 30-second timeout and reject redir
 - Every webhook requires a valid HMAC-SHA256 `X-Hail-Signature` over the original bytes and a timestamp within five minutes. Other event types and texts to other Hail numbers are acknowledged without running handlers.
 - Chat SDK deduplicates message IDs within its configured `dedupeTtlMs`. Hail retries can outlive this window; do not assume exactly-once processing. The adapter does not retry outbound sends automatically.
 - Chat SDK persists observed inbound and outbound messages in your state adapter. `thread.messages` uses this cache; older workspace messages are not backfilled. `fetchMessages()` returns no native history, enabling the SDK fallback. `fetchMessage()` reads a message by UUID and checks that it belongs to the exact phone pair; only `404` becomes `null`.
-- SMS has no typing indicator, so `startTyping()` is a no-op. Editing, deletion, and reactions throw `NotImplementedError`. Files, attachments, and cards are rejected. MMS, iMessage, RCS, voice, email, rich controls, and native streaming are outside this adapter's scope.
+- Streamed replies (`thread.post(textStream)`) are sent as one SMS when the stream ends. An empty, aborted, or over-1,600 reply sends nothing and throws.
+- SMS has no typing indicator, so `startTyping()` is a no-op. Editing, deletion, and reactions throw `NotImplementedError`. Files, attachments, and cards are rejected. MMS, iMessage, RCS, voice, email, and rich controls are outside this adapter's scope.
 - Failed HTTP responses throw `HailApiError` with a numeric `status`. Response bodies are excluded from errors. Network and timeout errors propagate. A timeout does not prove that a chargeable send failed; reconcile against Hail before retrying manually.
 
 Refer to [Hail webhook signing and retries](https://hail.so/docs/webhooks).
