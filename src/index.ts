@@ -10,6 +10,8 @@ import {
   type FetchResult,
   type FormattedContent,
   type RawMessage,
+  type StreamChunk,
+  type StreamOptions,
   type ThreadInfo,
   type WebhookOptions,
 } from "chat";
@@ -341,6 +343,25 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
       throw new Error("Unexpected Hail SMS send response");
     }
     return { id: raw.id, threadId, raw };
+  }
+
+  /**
+   * SMS cannot be edited, so a streamed reply is collected and sent as one message.
+   * This replaces Chat SDK's post-then-edit fallback, which would send a placeholder SMS.
+   */
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions,
+  ): Promise<RawMessage<HailSms>> {
+    this.decodeThreadId(threadId);
+    let text = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") text += chunk;
+      else if (chunk.type === "markdown_text") text += chunk.text;
+    }
+    options?.signal?.throwIfAborted();
+    return this.postMessage(threadId, { markdown: text });
   }
 
   async fetchMessage(
