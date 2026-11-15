@@ -57,6 +57,8 @@ For each release:
 
 Do not publish from a local machine. A local publish has no provenance.
 
+If the `publish` job fails with an authentication error, run the one-time `npm trust` command again, then re-run the failed jobs of that workflow run in GitHub Actions. The tag can stay as it is.
+
 ## Submit the Vercel listing
 
 Use the prepared `vercel-chat.patch` against the Vercel source revision recorded in the patch.
