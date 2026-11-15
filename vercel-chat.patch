@@ -1,10 +1,11 @@
-Prepared against vercel/chat 09cb11eca12de74e99dcad96b1c9876f63e0c54b
-Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/4aff103a7b8cd16be505e8aaf7a72fb0c22c6242
-Listing submission requires npm publication, live Hail docs, and a public announcement.
+Prepared against vercel/chat 990411ea2b6b3aeb01ef0bcf44cd2e0ccb320b93
+Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/1e9099ea7881cd5fc31731ea05a0ebff9f6db562
+Package: https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.0
+Announcement: https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0
 
 diff --git a/.changeset/hail-adapter.md b/.changeset/hail-adapter.md
 new file mode 100644
-index 00000000..ca52f80c
+index 0000000..ca52f80
 --- /dev/null
 +++ b/.changeset/hail-adapter.md
 @@ -0,0 +1,6 @@
@@ -16,17 +17,17 @@ index 00000000..ca52f80c
 +Add the Hail vendor-official SMS adapter to the catalog, docs, and CLI scaffold.
 diff --git a/apps/docs/content/adapters/vendor-official/hail.mdx b/apps/docs/content/adapters/vendor-official/hail.mdx
 new file mode 100644
-index 00000000..48bb3636
+index 0000000..faa3743
 --- /dev/null
 +++ b/apps/docs/content/adapters/vendor-official/hail.mdx
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,164 @@
 +---
 +title: Hail
-+description: Send and receive SMS through a Hail phone number, with signed webhooks, rotating credentials, and Chat SDK state-backed conversation history.
++description: Connect Chat SDK to SMS through Hail, the platform for AI-agent phone numbers, email, and voice. This adapter supports signed SMS webhooks, replies, rotating credentials, and state-backed conversation history.
 +packageName: "@hail-hq/chat-sdk-adapter"
 +slug: hail
 +type: platform
-+tagline: Connect your Chat SDK bot to SMS through a Hail phone number.
++tagline: Give your Chat SDK bot a Hail phone number to send and receive SMS.
 +community: true
 +vendorOfficial: true
 +author: Hail
@@ -63,7 +64,7 @@ index 00000000..48bb3636
 +});
 +```
 +
-+Memory state works for a single process. Use a shared state adapter such as [Redis](/adapters/official/redis) when you run more than one instance.
++Memory state works for a single process. For multiple instances or serverless functions, choose a shared state adapter such as [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres). Redis is not a Hail requirement.
 +The adapter requires Node.js 20+ and `chat` 4.44.0 or newer.
 +
 +```typescript title="app/api/webhooks/hail/route.ts" lineNumbers
@@ -77,6 +78,8 @@ index 00000000..48bb3636
 +```
 +
 +## Platform setup
++
++[Hail](https://hail.so) gives AI agents a phone number, an inbox, and a voice. Hail supports text messages, email, and inbound and outbound phone calls. This adapter exposes SMS; use Hail's APIs directly for email and calls.
 +
 +1. Create a key in [Hail API keys](https://hail.so/console/keys) and set `HAIL_API_KEY`.
 +2. Set `HAIL_FROM_NUMBER` to your Hail-owned, SMS-capable E.164 phone number. Clear its `sms_agent_id` if a Hail text agent would also answer it.
@@ -176,11 +179,14 @@ index 00000000..48bb3636
 +
 +## Resources
 +
++- [Hail](https://hail.so)
++- [Published npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter)
++- [Release announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
 +- [Adapter source and Next.js example](https://github.com/hail-hq/chat-sdk-adapter)
 +- [Hail Chat SDK documentation](https://hail.so/docs/webhooks#chat-sdk)
 +- [Adapter issues](https://github.com/hail-hq/chat-sdk-adapter/issues)
 diff --git a/apps/docs/content/adapters/vendor-official/meta.json b/apps/docs/content/adapters/vendor-official/meta.json
-index c95c8667..5ba304a8 100644
+index c95c866..5ba304a 100644
 --- a/apps/docs/content/adapters/vendor-official/meta.json
 +++ b/apps/docs/content/adapters/vendor-official/meta.json
 @@ -15,6 +15,7 @@
@@ -193,10 +199,10 @@ index c95c8667..5ba304a8 100644
    ]
  }
 diff --git a/packages/catalog/src/adapters/index.ts b/packages/catalog/src/adapters/index.ts
-index ae88f7db..dd1d0b0a 100644
+index a13c229..5ef9297 100644
 --- a/packages/catalog/src/adapters/index.ts
 +++ b/packages/catalog/src/adapters/index.ts
-@@ -39,6 +39,7 @@ import { adeli } from "./vendor-official/adeli";
+@@ -40,6 +40,7 @@ import { adeli } from "./vendor-official/adeli";
  import { agentphone } from "./vendor-official/agentphone";
  import { cloudflareAgents } from "./vendor-official/cloudflare-agents";
  import { dial } from "./vendor-official/dial";
@@ -204,7 +210,7 @@ index ae88f7db..dd1d0b0a 100644
  import { kapso } from "./vendor-official/kapso";
  import { lark } from "./vendor-official/lark";
  import { linq } from "./vendor-official/linq";
-@@ -93,6 +94,7 @@ export const ADAPTERS = {
+@@ -94,6 +95,7 @@ export const ADAPTERS = {
    photon,
    dial,
    adeli,
@@ -214,7 +220,7 @@ index ae88f7db..dd1d0b0a 100644
  /**
 diff --git a/packages/catalog/src/adapters/vendor-official/hail.ts b/packages/catalog/src/adapters/vendor-official/hail.ts
 new file mode 100644
-index 00000000..5455ac89
+index 0000000..de8f125
 --- /dev/null
 +++ b/packages/catalog/src/adapters/vendor-official/hail.ts
 @@ -0,0 +1,61 @@
@@ -224,7 +230,7 @@ index 00000000..5455ac89
 +export const hail = {
 +  author: "Hail",
 +  description:
-+    "Send and receive SMS through a Hail phone number, with signed webhooks, rotating credentials, and Chat SDK state-backed conversation history.",
++    "Connect Chat SDK to SMS through Hail, the platform for AI-agent phone numbers, email, and voice. This adapter supports signed SMS webhooks, replies, rotating credentials, and state-backed conversation history.",
 +  env: {
 +    config: ["userName", "fetch"],
 +    notes:
@@ -275,12 +281,12 @@ index 00000000..5455ac89
 +  packageName: "@hail-hq/chat-sdk-adapter",
 +  peerDeps: [],
 +  readme:
-+    "https://github.com/hail-hq/chat-sdk-adapter/tree/4aff103a7b8cd16be505e8aaf7a72fb0c22c6242",
++    "https://github.com/hail-hq/chat-sdk-adapter/tree/1e9099ea7881cd5fc31731ea05a0ebff9f6db562",
 +  slug: "hail",
 +  type: "platform",
 +} as const satisfies CatalogAdapter;
 diff --git a/packages/create-chat-sdk/src/catalog/scaffold-spec.ts b/packages/create-chat-sdk/src/catalog/scaffold-spec.ts
-index dab448a2..a8e8d3cc 100644
+index 31cbcc0..e77533a 100644
 --- a/packages/create-chat-sdk/src/catalog/scaffold-spec.ts
 +++ b/packages/create-chat-sdk/src/catalog/scaffold-spec.ts
 @@ -205,6 +205,9 @@ export const CLI_SCAFFOLD_SPEC = {

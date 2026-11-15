@@ -1,6 +1,8 @@
 # Release and submit the Hail adapter
 
-The adapter is prepared as `@hail-hq/chat-sdk-adapter@0.1.0`. This document is a release checklist, not a publication record.
+`@hail-hq/chat-sdk-adapter@0.1.0` is [published on npm](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.0). The [release announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0) and [Hail product documentation](https://hail.so/docs/webhooks#chat-sdk) are public. The Vercel listing requires separate review and acceptance.
+
+Version 0.1.0 passed 33 automated tests, type checking, package and example builds, a clean registry installation and import, and a real SMS exchange with handset confirmation. The remaining sections describe future releases and the Vercel submission process.
 
 ## Validate the artifact
 
