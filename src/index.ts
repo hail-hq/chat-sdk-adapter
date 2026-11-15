@@ -10,6 +10,8 @@ import {
   type FetchResult,
   type FormattedContent,
   type RawMessage,
+  type StreamChunk,
+  type StreamOptions,
   type ThreadInfo,
   type WebhookOptions,
 } from "chat";
@@ -26,6 +28,8 @@ export type {
   HailThreadId,
 } from "./types.js";
 
+const SMS_MAX = 1600;
+const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
 const UUID =
@@ -265,10 +269,16 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
   }
 
-  private async api(path: string, body?: unknown): Promise<unknown> {
+  private async api(
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const apiKey = await credential(
       this.config.apiKey ?? process.env.HAIL_API_KEY,
     );
+    // Last chance to cancel before a chargeable request is made.
+    signal?.throwIfAborted();
     if (!apiKey)
       throw new Error("An API key is required: set HAIL_API_KEY or apiKey");
     const origin = new URL(
@@ -303,15 +313,22 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     return await response.json();
   }
 
-  async postMessage(
+  postMessage(
     threadId: string,
     message: AdapterPostableMessage,
+  ): Promise<RawMessage<HailSms>> {
+    return this.send(threadId, message);
+  }
+
+  private async send(
+    threadId: string,
+    message: AdapterPostableMessage,
+    signal?: AbortSignal,
   ): Promise<RawMessage<HailSms>> {
     const { fromNumber, peerNumber } = this.decodeThreadId(threadId);
     const body = this.text(message);
     if (!body.trim()) throw new Error("SMS text cannot be empty");
-    if ([...body].length > 1600)
-      throw new Error("SMS text must be at most 1600 characters");
+    if ([...body].length > SMS_MAX) throw new Error(TOO_LONG);
     const consent =
       this.config.recipientConsent ??
       process.env.HAIL_RECIPIENT_CONSENT === "true";
@@ -323,13 +340,17 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         "Explicit recipient consent is required before sending SMS",
       );
     }
-    const raw = await this.api("/v1/sms", {
-      from: fromNumber,
-      to: peerNumber,
-      body,
-      recipient_consent: true,
-      message_type: "informational",
-    });
+    const raw = await this.api(
+      "/v1/sms",
+      {
+        from: fromNumber,
+        to: peerNumber,
+        body,
+        recipient_consent: true,
+        message_type: "informational",
+      },
+      signal,
+    );
     if (
       !isSms(raw) ||
       raw.from_e164 !== fromNumber ||
@@ -341,6 +362,33 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
       throw new Error("Unexpected Hail SMS send response");
     }
     return { id: raw.id, threadId, raw };
+  }
+
+  /**
+   * SMS cannot be edited, so a streamed reply is collected and sent as one message.
+   * This replaces Chat SDK's post-then-edit fallback, which would send a placeholder SMS.
+   */
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions,
+  ): Promise<RawMessage<HailSms>> {
+    // Fail on a bad thread ID before reading (and paying for) the stream.
+    this.decodeThreadId(threadId);
+    const signal = options?.signal;
+    let text = "";
+    for await (const chunk of textStream) {
+      signal?.throwIfAborted();
+      if (typeof chunk === "string") text += chunk;
+      else if (chunk.type === "markdown_text") text += chunk.text;
+      // UTF-16 length is never below the code point count, so the full
+      // count runs only near the limit. Over it, stop reading.
+      if (text.length > SMS_MAX && [...text].length > SMS_MAX)
+        throw new Error(TOO_LONG);
+    }
+    // Chat SDK ends the stream quietly on abort, so check again here.
+    signal?.throwIfAborted();
+    return this.send(threadId, { markdown: text }, signal);
   }
 
   async fetchMessage(

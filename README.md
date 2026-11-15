@@ -22,14 +22,19 @@ import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createHailAdapter } from "@hail-hq/chat-sdk-adapter";
 
+export const hail = createHailAdapter();
+
 export const bot = new Chat({
   userName: "mybot",
-  adapters: { hail: createHailAdapter() },
+  adapters: { hail },
   state: createMemoryState(),
+  concurrency: "queue",
 });
 
-bot.onDirectMessage(async (thread, message) => {
-  await thread.post(`You said: ${message.text}`);
+bot.onDirectMessage(async (thread, message, _channel, context) => {
+  // Texts that arrived while the bot was busy, oldest first.
+  const texts = [...(context?.skipped ?? []), message].map((m) => m.text);
+  await thread.post(`You said: ${texts.join("\n")}`);
 });
 ```
 
@@ -45,6 +50,26 @@ export async function POST(request: Request): Promise<Response> {
 ```
 
 The adapter uses Node's crypto module and does not support the Edge runtime.
+
+`concurrency: "queue"` holds texts that arrive during a reply (up to 10, for 90 seconds) and gives them to the next run in `context.skipped`. The default, `"drop"`, loses them.
+To change the limits, use `concurrency: { strategy: "queue", maxQueueSize, queueEntryTtlMs }`.
+
+## Start a conversation
+
+To text someone first, open the thread through the adapter. In a one-off script:
+
+```typescript
+// scripts/notify.ts
+import { bot, hail } from "../lib/bot";
+
+await bot.initialize();
+const thread = bot.thread(await hail.openDM("+14155550123"));
+await thread.post("Your order has shipped.");
+await bot.shutdown();
+```
+
+In a server route, call `await bot.initialize()` but not `bot.shutdown()`, which would stop the webhook bot too.
+`bot.openDM()` does not accept phone numbers. Recipient consent and SMS charges apply as for replies.
 
 ## State storage
 
@@ -110,9 +135,10 @@ Use HTTPS for remote servers. Requests have a 30-second timeout and reject redir
 - `thread.post()` sends informational SMS. Strings and raw text remain unchanged; Markdown and AST content are sent as text with Markdown syntax. Empty messages and messages over 1,600 Unicode code points fail before sending.
 - `openDM(peerNumber)` returns `hail:{yourNumber}:{peerNumber}`. The configured Hail number and the peer scope both threads and channels, isolating state between conversations.
 - Every webhook requires a valid HMAC-SHA256 `X-Hail-Signature` over the original bytes and a timestamp within five minutes. Other event types and texts to other Hail numbers are acknowledged without running handlers.
-- Chat SDK deduplicates message IDs within its configured `dedupeTtlMs`. Hail retries can outlive this window; do not assume exactly-once processing. The adapter does not retry outbound sends automatically.
+- Chat SDK deduplicates message IDs within its configured `dedupeTtlMs`. Hail retries can outlive this window; do not assume exactly-once processing. A retry inside the window does not run your handler again, even if the first run threw. The adapter does not retry outbound sends automatically.
 - Chat SDK persists observed inbound and outbound messages in your state adapter. `thread.messages` uses this cache; older workspace messages are not backfilled. `fetchMessages()` returns no native history, enabling the SDK fallback. `fetchMessage()` reads a message by UUID and checks that it belongs to the exact phone pair; only `404` becomes `null`.
-- SMS has no typing indicator, so `startTyping()` is a no-op. Editing, deletion, and reactions throw `NotImplementedError`. Files, attachments, and cards are rejected. MMS, iMessage, RCS, voice, email, rich controls, and native streaming are outside this adapter's scope.
+- Streamed replies (`thread.post(textStream)`) are sent as one SMS when the stream ends. An empty, aborted, or over-1,600 reply sends nothing and throws.
+- SMS has no typing indicator, so `startTyping()` is a no-op. Editing, deletion, and reactions throw `NotImplementedError`. Files, attachments, and cards are rejected. MMS, iMessage, RCS, voice, email, and rich controls are outside this adapter's scope.
 - Failed HTTP responses throw `HailApiError` with a numeric `status`. Response bodies are excluded from errors. Network and timeout errors propagate. A timeout does not prove that a chargeable send failed; reconcile against Hail before retrying manually.
 
 Refer to [Hail webhook signing and retries](https://hail.so/docs/webhooks).
