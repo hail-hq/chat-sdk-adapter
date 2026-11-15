@@ -32,10 +32,11 @@ One-time setup, by an npm account that can publish under `@hail-hq`:
 npx -y npm@latest trust github @hail-hq/chat-sdk-adapter \
   --file release.yml \
   --repo hail-hq/chat-sdk-adapter \
+  --env npm \
   --allow-publish
 ```
 
-npm asks for two-factor confirmation in the browser.
+npm asks for two-factor confirmation in the browser. A new trusted publisher must publish once within 2 days, so run this shortly before the first tag.
 
 For each release:
 
@@ -48,9 +49,11 @@ For each release:
    git push origin v0.1.1
    ```
 
-3. The `Release` workflow (`.github/workflows/release.yml`) checks that the tag matches `package.json`, then runs `npm publish`. The `prepack` script runs tests, type checking, and the build.
-4. Confirm `npm view @hail-hq/chat-sdk-adapter@<version> version dist.attestations` shows a provenance attestation, and install the published artifact into a clean app.
-5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live.
+3. The `Release` workflow (`.github/workflows/release.yml`) has two jobs:
+   - `build` checks that the tag matches `package.json` and points to a commit on `main`, then runs the format check, tests, type check and build, and packs the tarball. It cannot publish.
+   - `publish` runs in the `npm` environment and publishes that tarball. A version with a `-` suffix (for example `0.2.0-rc.1`) is published under the `next` dist-tag, not `latest`.
+4. Confirm `npm view @hail-hq/chat-sdk-adapter@<version> version repository dist.integrity dist.attestations` shows the repository and a provenance attestation, and install the published artifact into a clean app.
+5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live. Publish the reviewed announcement from `ANNOUNCEMENT.md` and save its public URL.
 
 Do not publish from a local machine. A local publish has no provenance.
 
