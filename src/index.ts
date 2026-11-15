@@ -28,6 +28,8 @@ export type {
   HailThreadId,
 } from "./types.js";
 
+const SMS_MAX = 1600;
+const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
 const UUID =
@@ -305,15 +307,22 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     return await response.json();
   }
 
-  async postMessage(
+  postMessage(
     threadId: string,
     message: AdapterPostableMessage,
+  ): Promise<RawMessage<HailSms>> {
+    return this.send(threadId, message);
+  }
+
+  private async send(
+    threadId: string,
+    message: AdapterPostableMessage,
+    signal?: AbortSignal,
   ): Promise<RawMessage<HailSms>> {
     const { fromNumber, peerNumber } = this.decodeThreadId(threadId);
     const body = this.text(message);
     if (!body.trim()) throw new Error("SMS text cannot be empty");
-    if ([...body].length > 1600)
-      throw new Error("SMS text must be at most 1600 characters");
+    if ([...body].length > SMS_MAX) throw new Error(TOO_LONG);
     const consent =
       this.config.recipientConsent ??
       process.env.HAIL_RECIPIENT_CONSENT === "true";
@@ -325,6 +334,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         "Explicit recipient consent is required before sending SMS",
       );
     }
+    signal?.throwIfAborted();
     const raw = await this.api("/v1/sms", {
       from: fromNumber,
       to: peerNumber,
@@ -354,14 +364,18 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions,
   ): Promise<RawMessage<HailSms>> {
+    // Fail on a bad thread ID before reading (and paying for) the stream.
     this.decodeThreadId(threadId);
+    const signal = options?.signal;
     let text = "";
     for await (const chunk of textStream) {
+      signal?.throwIfAborted();
       if (typeof chunk === "string") text += chunk;
       else if (chunk.type === "markdown_text") text += chunk.text;
+      // The reply can no longer be sent, so stop the stream now.
+      if ([...text].length > SMS_MAX) throw new Error(TOO_LONG);
     }
-    options?.signal?.throwIfAborted();
-    return this.postMessage(threadId, { markdown: text });
+    return this.send(threadId, { markdown: text }, signal);
   }
 
   async fetchMessage(

@@ -446,10 +446,44 @@ describe("streaming", () => {
     async function* aborted() {
       yield "partial";
       controller.abort();
+      yield "more";
     }
     await expect(
       hail.stream(threadId, aborted(), { signal: controller.signal }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while consent is checked", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      recipientConsent: async () => {
+        controller.abort();
+        return true;
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("stops reading a stream as soon as the reply is too long", async () => {
+    const { hail, bodies } = recording();
+    let pulled = 0;
+    async function* endless() {
+      while (true) {
+        pulled++;
+        yield "a".repeat(500);
+      }
+    }
+    await expect(hail.stream(threadId, endless())).rejects.toThrow(
+      "at most 1600",
+    );
+    expect(pulled).toBe(4);
     expect(bodies).toEqual([]);
   });
 });
