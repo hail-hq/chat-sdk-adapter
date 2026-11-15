@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Chat, NotImplementedError } from "chat";
+import { Chat, NotImplementedError, type StreamChunk } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createHailAdapter } from "../src/index.js";
 const from = "+14155550100",
@@ -475,6 +475,149 @@ describe("outbound", () => {
     await expect(
       adapter({ apiKey: undefined }).postMessage(threadId, "Hello"),
     ).rejects.toThrow(/API key/i);
+  });
+});
+describe("streaming", () => {
+  async function* chunks<T>(...values: T[]) {
+    for (const value of values) yield value;
+  }
+  function recording() {
+    const bodies: string[] = [];
+    const hail = adapter({
+      fetch: async (_url: URL, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)).body as string;
+        bodies.push(body);
+        return Response.json({ ...sms, body });
+      },
+    });
+    return { hail, bodies };
+  }
+  it("sends a streamed reply as one SMS, without a placeholder", async () => {
+    const { hail, bodies } = recording();
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    bot.onDirectMessage(async (thread) => {
+      await thread.post(chunks("Hel", "lo ", "world"));
+    });
+    expect((await bot.webhooks.hail(signed())).status).toBe(200);
+    expect(bodies).toEqual(["Hello world"]);
+    const history: string[] = [];
+    for await (const message of bot.thread(threadId).messages)
+      history.push(message.text);
+    expect(history).toContain("Hello world");
+  });
+  it("keeps only text chunks", async () => {
+    const { hail, bodies } = recording();
+    const raw = await hail.stream(
+      threadId,
+      chunks<string | StreamChunk>(
+        "A",
+        { type: "markdown_text" as const, text: "B" },
+        { type: "plan_update" as const, title: "ignored" },
+        "C",
+      ),
+    );
+    expect(raw.id).toBe(id);
+    expect(bodies).toEqual(["ABC"]);
+  });
+  it("applies SMS limits to the whole streamed reply before sending", async () => {
+    const { hail, bodies } = recording();
+    await expect(hail.stream(threadId, chunks("", " "))).rejects.toThrow(
+      "SMS text cannot be empty",
+    );
+    await expect(
+      hail.stream(threadId, chunks("a".repeat(1000), "a".repeat(601))),
+    ).rejects.toThrow("at most 1600");
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the stream is aborted", async () => {
+    const { hail, bodies } = recording();
+    const controller = new AbortController();
+    async function* aborted() {
+      yield "partial";
+      controller.abort();
+      yield "more";
+    }
+    await expect(
+      hail.stream(threadId, aborted(), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the stream ends because the turn was aborted", async () => {
+    const { hail, bodies } = recording();
+    const controller = new AbortController();
+    async function* endsOnAbort() {
+      yield "partial";
+      controller.abort();
+    }
+    await expect(
+      hail.stream(threadId, endsOnAbort(), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while the API key resolves", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      apiKey: async () => {
+        controller.abort();
+        return "test-key";
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while consent is checked", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      recipientConsent: async () => {
+        controller.abort();
+        return true;
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("counts an emoji split across chunks once", async () => {
+    const { hail, bodies } = recording();
+    const emoji = "😀";
+    await hail.stream(
+      threadId,
+      chunks("a".repeat(1599), emoji[0] as string, emoji[1] as string),
+    );
+    expect(bodies).toEqual(["a".repeat(1599) + emoji]);
+  });
+  it("stops reading a stream as soon as the reply is too long", async () => {
+    const { hail, bodies } = recording();
+    let pulled = 0;
+    async function* endless() {
+      while (true) {
+        pulled++;
+        yield "a".repeat(500);
+      }
+    }
+    await expect(hail.stream(threadId, endless())).rejects.toThrow(
+      "at most 1600",
+    );
+    expect(pulled).toBe(4);
+    expect(bodies).toEqual([]);
   });
 });
 describe("scaffold environment", () => {
