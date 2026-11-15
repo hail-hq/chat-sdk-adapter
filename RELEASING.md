@@ -57,7 +57,7 @@ For each release:
 
 Do not publish from a local machine. A local publish has no provenance.
 
-If the `publish` job fails with an authentication error, run the one-time `npm trust` command again, then re-run the failed jobs of that workflow run in GitHub Actions. The tag can stay as it is.
+If the `build` job fails, fix it in a new pull request with a new version, and push a new tag. If the `publish` job fails with an authentication error, check the trusted publisher with `npx -y npm@latest trust list @hail-hq/chat-sdk-adapter`, fix it, then re-run the failed `publish` job.
 
 ## Submit the Vercel listing
 
