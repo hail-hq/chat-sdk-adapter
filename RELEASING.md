@@ -24,15 +24,35 @@ The automated tests use the real Chat runtime and a fake Hail HTTP transport; th
 
 ## Publish the package
 
-After the adapter PR is approved and incorporated by a maintainer:
+Releases publish from GitHub Actions with npm trusted publishing. There is no npm token in the repository or in GitHub secrets. npm adds a provenance attestation to each release.
 
-1. Authenticate npm with an account that can publish under `@hail-hq`: `npm login`.
-2. Confirm the account with `npm whoami` and confirm its `@hail-hq` organization permissions.
-3. Run `npm publish --access public` from this directory. The `prepack` script runs tests, type checking, and the build.
-4. Confirm `npm view @hail-hq/chat-sdk-adapter@0.1.0 version repository dist.integrity` and install the published artifact into a clean app.
-5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live. Publish the reviewed announcement from `ANNOUNCEMENT.md` and save its public URL.
+One-time setup, by an npm account that can publish under `@hail-hq`:
 
-Do not place an npm token in the repository. There is no automatic publish or deployment workflow in this change.
+```bash
+npx -y npm@latest trust github @hail-hq/chat-sdk-adapter \
+  --file release.yml \
+  --repo hail-hq/chat-sdk-adapter \
+  --allow-publish
+```
+
+npm asks for two-factor confirmation in the browser.
+
+For each release:
+
+1. Set `version` in `package.json` in a pull request, and merge it after CI passes.
+2. Tag the merged commit on `main` and push the tag:
+
+   ```bash
+   git fetch origin
+   git tag v0.1.1 origin/main
+   git push origin v0.1.1
+   ```
+
+3. The `Release` workflow (`.github/workflows/release.yml`) checks that the tag matches `package.json`, then runs `npm publish`. The `prepack` script runs tests, type checking, and the build.
+4. Confirm `npm view @hail-hq/chat-sdk-adapter@<version> version dist.attestations` shows a provenance attestation, and install the published artifact into a clean app.
+5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live.
+
+Do not publish from a local machine. A local publish has no provenance.
 
 ## Submit the Vercel listing
 
