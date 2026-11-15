@@ -1,6 +1,6 @@
 {
   "name": "@hail-hq/chat-sdk-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Hail SMS adapter for Vercel Chat SDK",
   "type": "module",
   "license": "AGPL-3.0-only",

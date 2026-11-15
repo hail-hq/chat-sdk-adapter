@@ -24,15 +24,40 @@ The automated tests use the real Chat runtime and a fake Hail HTTP transport; th
 
 ## Publish the package
 
-After the adapter PR is approved and incorporated by a maintainer:
+Releases publish from GitHub Actions with npm trusted publishing. There is no npm token in the repository or in GitHub secrets. npm adds a provenance attestation to each release.
 
-1. Authenticate npm with an account that can publish under `@hail-hq`: `npm login`.
-2. Confirm the account with `npm whoami` and confirm its `@hail-hq` organization permissions.
-3. Run `npm publish --access public` from this directory. The `prepack` script runs tests, type checking, and the build.
-4. Confirm `npm view @hail-hq/chat-sdk-adapter@0.1.0 version repository dist.integrity` and install the published artifact into a clean app.
+One-time setup, by an npm account that can publish under `@hail-hq`:
+
+```bash
+npx -y npm@latest trust github @hail-hq/chat-sdk-adapter \
+  --file release.yml \
+  --repo hail-hq/chat-sdk-adapter \
+  --env npm \
+  --allow-publish
+```
+
+npm asks for two-factor confirmation in the browser. A new trusted publisher must publish once within 2 days, so run this shortly before the first tag.
+
+For each release:
+
+1. Set `version` in `package.json` in a pull request, and merge it after CI passes.
+2. Tag the merged commit on `main` and push the tag:
+
+   ```bash
+   git fetch origin
+   git tag v0.1.1 origin/main
+   git push origin v0.1.1
+   ```
+
+3. The `Release` workflow (`.github/workflows/release.yml`) has two jobs:
+   - `build` checks that the tag matches `package.json` and points to a commit on `main`. It installs without dependency lifecycle scripts, runs the same checks as CI, and packs the tarball. It cannot publish.
+   - `publish` runs in the `npm` environment, which allows only `v*` tags and waits for a required reviewer to approve the run in GitHub Actions. Then it publishes that tarball. A version with a `-` suffix (for example `0.2.0-rc.1`) is published under the `next` dist-tag, not `latest`.
+4. Confirm `npm view @hail-hq/chat-sdk-adapter@<version> version repository dist.integrity dist.attestations` shows the repository and a provenance attestation, and install the published artifact into a clean app.
 5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live. Publish the reviewed announcement from `ANNOUNCEMENT.md` and save its public URL.
 
-Do not place an npm token in the repository. There is no automatic publish or deployment workflow in this change.
+Do not publish from a local machine. A local publish has no provenance.
+
+If the `build` job fails, fix it in a new pull request with a new version, and push a new tag. If the `publish` job fails with an authentication error, check the trusted publisher with `npx -y npm@latest trust list @hail-hq/chat-sdk-adapter`, fix it, then re-run the failed `publish` job.
 
 ## Submit the Vercel listing
 
