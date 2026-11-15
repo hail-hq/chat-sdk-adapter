@@ -290,6 +290,70 @@ describe("background processing", () => {
   });
 });
 
+describe("documented setup", () => {
+  function burstEvent(n: number) {
+    return JSON.stringify({
+      ...event,
+      data: {
+        ...event.data,
+        id: `fd658fd6-50ea-4248-acb1-3023bd51da0${n}`,
+        body: `text ${n}`,
+      },
+    });
+  }
+  it("handles texts sent in a row with the queue strategy", async () => {
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail: adapter() },
+      state: createMemoryState(),
+      concurrency: "queue",
+    });
+    bots.push(bot);
+    const handled: string[] = [];
+    bot.onDirectMessage(async (_thread, message, _channel, context) => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      for (const skipped of context?.skipped ?? []) handled.push(skipped.text);
+      handled.push(message.text);
+    });
+    const tasks: Promise<unknown>[] = [];
+    const options = { waitUntil: (task: Promise<unknown>) => tasks.push(task) };
+    for (const n of [1, 2, 3]) {
+      expect(
+        (await bot.webhooks.hail(signed(burstEvent(n)), options)).status,
+      ).toBe(200);
+    }
+    await Promise.all(tasks);
+    expect(handled).toEqual(["text 1", "text 2", "text 3"]);
+  });
+  it("starts a conversation through the adapter's openDM", async () => {
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return Response.json(sms);
+      },
+    });
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    await bot.initialize();
+    await expect(bot.openDM(peer)).rejects.toThrow("Cannot infer adapter");
+    const thread = bot.thread(await hail.openDM(peer));
+    await thread.post("Hello");
+    expect(bodies).toEqual([
+      {
+        from,
+        to: peer,
+        body: "Hello",
+        recipient_consent: true,
+        message_type: "informational",
+      },
+    ]);
+  });
+});
 describe("outbound", () => {
   it("resolves credentials per request and refuses redirects", async () => {
     let token = "first";

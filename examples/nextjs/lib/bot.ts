@@ -11,6 +11,7 @@ export const bot = new Chat({
   userName: "mybot",
   adapters: { hail: createHailAdapter() },
   state: process.env.REDIS_URL ? createRedisState() : createMemoryState(),
+  concurrency: "queue",
 });
 
 bot.onDirectMessage(async (thread, message) => {
