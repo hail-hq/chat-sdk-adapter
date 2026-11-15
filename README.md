@@ -51,15 +51,16 @@ export async function POST(request: Request): Promise<Response> {
 
 The adapter uses Node's crypto module and does not support the Edge runtime.
 
-`concurrency: "queue"` keeps texts that arrive during a reply. The next run gets them in `context.skipped`. The default, `"drop"`, loses them.
-To change the limits (10 texts, 90 seconds), use `concurrency: { strategy: "queue", maxQueueSize, queueEntryTtlMs }`.
+`concurrency: "queue"` holds texts that arrive during a reply (up to 10, for 90 seconds) and gives them to the next run in `context.skipped`. The default, `"drop"`, loses them.
+To change the limits, use `concurrency: { strategy: "queue", maxQueueSize, queueEntryTtlMs }`.
 
 ## Start a conversation
 
-To text someone first, open the thread through the adapter:
+To text someone first, open the thread through the adapter. In a one-off script:
 
 ```typescript
-import { bot, hail } from "./lib/bot";
+// scripts/notify.ts
+import { bot, hail } from "../lib/bot";
 
 await bot.initialize();
 const thread = bot.thread(await hail.openDM("+14155550123"));
@@ -67,6 +68,7 @@ await thread.post("Your order has shipped.");
 await bot.shutdown();
 ```
 
+In a server route, call `await bot.initialize()` but not `bot.shutdown()`, which would stop the webhook bot too.
 `bot.openDM()` does not accept phone numbers. Recipient consent and SMS charges apply as for replies.
 
 ## State storage

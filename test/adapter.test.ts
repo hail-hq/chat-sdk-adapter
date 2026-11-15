@@ -307,6 +307,7 @@ describe("documented setup", () => {
       adapters: { hail: adapter() },
       state: createMemoryState(),
       concurrency: "queue",
+      logger: "silent",
     });
     bots.push(bot);
     const runs: { message: string; skipped: string[] }[] = [];
@@ -366,6 +367,7 @@ describe("documented setup", () => {
       adapters: { hail },
       state: createMemoryState(),
     });
+    bots.push(bot);
     await expect(bot.openDM(peer)).rejects.toThrow("Cannot infer adapter");
     await bot.initialize();
     const thread = bot.thread(await hail.openDM(peer));
