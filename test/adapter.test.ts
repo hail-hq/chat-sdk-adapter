@@ -501,6 +501,15 @@ describe("streaming", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(bodies).toEqual([]);
   });
+  it("counts an emoji split across chunks once", async () => {
+    const { hail, bodies } = recording();
+    const emoji = "😀";
+    await hail.stream(
+      threadId,
+      chunks("a".repeat(1599), emoji[0] as string, emoji[1] as string),
+    );
+    expect(bodies).toEqual(["a".repeat(1599) + emoji]);
+  });
   it("stops reading a stream as soon as the reply is too long", async () => {
     const { hail, bodies } = recording();
     let pulled = 0;

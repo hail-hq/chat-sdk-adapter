@@ -340,7 +340,6 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         "Explicit recipient consent is required before sending SMS",
       );
     }
-    signal?.throwIfAborted();
     const raw = await this.api(
       "/v1/sms",
       {
@@ -378,19 +377,14 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     this.decodeThreadId(threadId);
     const signal = options?.signal;
     let text = "";
-    let length = 0;
     for await (const chunk of textStream) {
       signal?.throwIfAborted();
-      const piece =
-        typeof chunk === "string"
-          ? chunk
-          : chunk.type === "markdown_text"
-            ? chunk.text
-            : "";
-      text += piece;
-      length += [...piece].length;
-      // The reply can no longer be sent, so stop reading.
-      if (length > SMS_MAX) throw new Error(TOO_LONG);
+      if (typeof chunk === "string") text += chunk;
+      else if (chunk.type === "markdown_text") text += chunk.text;
+      // UTF-16 length is never below the code point count, so the full
+      // count runs only near the limit. Over it, stop reading.
+      if (text.length > SMS_MAX && [...text].length > SMS_MAX)
+        throw new Error(TOO_LONG);
     }
     // Chat SDK ends the stream quietly on abort, so check again here.
     signal?.throwIfAborted();
