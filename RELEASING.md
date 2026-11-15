@@ -51,7 +51,7 @@ For each release:
 
 3. The `Release` workflow (`.github/workflows/release.yml`) has two jobs:
    - `build` checks that the tag matches `package.json` and points to a commit on `main`. It installs without dependency lifecycle scripts, runs the same checks as CI, and packs the tarball. It cannot publish.
-   - `publish` runs in the `npm` environment and publishes that tarball. A version with a `-` suffix (for example `0.2.0-rc.1`) is published under the `next` dist-tag, not `latest`.
+   - `publish` runs in the `npm` environment, which allows only `v*` tags and waits for a required reviewer to approve the run in GitHub Actions. Then it publishes that tarball. A version with a `-` suffix (for example `0.2.0-rc.1`) is published under the `next` dist-tag, not `latest`.
 4. Confirm `npm view @hail-hq/chat-sdk-adapter@<version> version repository dist.integrity dist.attestations` shows the repository and a provenance attestation, and install the published artifact into a clean app.
 5. Confirm the Hail product documentation at `https://hail.so/docs/webhooks#chat-sdk` is live. Publish the reviewed announcement from `ANNOUNCEMENT.md` and save its public URL.
 
