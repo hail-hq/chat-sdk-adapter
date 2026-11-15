@@ -309,11 +309,13 @@ describe("documented setup", () => {
       concurrency: "queue",
     });
     bots.push(bot);
-    const handled: string[] = [];
+    const runs: { message: string; skipped: string[] }[] = [];
     bot.onDirectMessage(async (_thread, message, _channel, context) => {
       await new Promise((resolve) => setTimeout(resolve, 30));
-      for (const skipped of context?.skipped ?? []) handled.push(skipped.text);
-      handled.push(message.text);
+      runs.push({
+        message: message.text,
+        skipped: (context?.skipped ?? []).map((m) => m.text),
+      });
     });
     const tasks: Promise<unknown>[] = [];
     const options = { waitUntil: (task: Promise<unknown>) => tasks.push(task) };
@@ -323,7 +325,33 @@ describe("documented setup", () => {
       ).toBe(200);
     }
     await Promise.all(tasks);
-    expect(handled).toEqual(["text 1", "text 2", "text 3"]);
+    expect(runs).toEqual([
+      { message: "text 1", skipped: [] },
+      { message: "text 3", skipped: ["text 2"] },
+    ]);
+  });
+  it("loses a text sent during a reply with the default drop strategy", async () => {
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail: adapter() },
+      state: createMemoryState(),
+      logger: "silent",
+    });
+    bots.push(bot);
+    const handled: string[] = [];
+    bot.onDirectMessage(async (_thread, message) => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      handled.push(message.text);
+    });
+    const tasks: Promise<unknown>[] = [];
+    const options = { waitUntil: (task: Promise<unknown>) => tasks.push(task) };
+    for (const n of [1, 2]) {
+      expect(
+        (await bot.webhooks.hail(signed(burstEvent(n)), options)).status,
+      ).toBe(200);
+    }
+    await Promise.allSettled(tasks);
+    expect(handled).toEqual(["text 1"]);
   });
   it("starts a conversation through the adapter's openDM", async () => {
     const bodies: unknown[] = [];

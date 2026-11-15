@@ -31,8 +31,10 @@ export const bot = new Chat({
   concurrency: "queue",
 });
 
-bot.onDirectMessage(async (thread, message) => {
-  await thread.post(`You said: ${message.text}`);
+bot.onDirectMessage(async (thread, message, _channel, context) => {
+  // Texts that arrived while the bot was busy, oldest first.
+  const texts = [...(context?.skipped ?? []), message].map((m) => m.text);
+  await thread.post(`You said: ${texts.join("\n")}`);
 });
 ```
 
@@ -49,7 +51,7 @@ export async function POST(request: Request): Promise<Response> {
 
 The adapter uses Node's crypto module and does not support the Edge runtime.
 
-People often send two texts in a row. `concurrency: "queue"` keeps texts that arrive while the bot is still replying. The next handler run gets the latest text, and the earlier ones are in `context.skipped`. With Chat SDK's default (`"drop"`), a text that arrives during a reply is lost.
+People often send two texts in a row. With `concurrency: "queue"`, texts that arrive while the bot is still replying wait for the next handler run. That run gets the latest text as `message` and the earlier ones in `context.skipped`, so read both. By default the queue holds 10 texts for 90 seconds; set `maxQueueSize` and `queueEntryTtlMs` to change this. With Chat SDK's default (`"drop"`), a text that arrives during a reply is lost, and no handler sees it.
 
 ## Start a conversation
 
@@ -58,9 +60,12 @@ To text someone first, open the thread through the adapter:
 ```typescript
 import { bot, hail } from "@/lib/bot";
 
+await bot.initialize();
 const thread = bot.thread(await hail.openDM("+14155550123"));
 await thread.post("Your order has shipped.");
 ```
+
+`bot.initialize()` connects the state adapter. A webhook does this for you, but a script or cron job must call it before `post()`. Without it, the SMS is sent and then `post()` throws.
 
 `bot.openDM("+14155550123")` does not work, because Chat SDK cannot tell which adapter a phone number belongs to. Recipient consent and SMS charges apply as for replies.
 
