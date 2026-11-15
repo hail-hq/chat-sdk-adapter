@@ -269,10 +269,16 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
   }
 
-  private async api(path: string, body?: unknown): Promise<unknown> {
+  private async api(
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const apiKey = await credential(
       this.config.apiKey ?? process.env.HAIL_API_KEY,
     );
+    // Last chance to cancel before a chargeable request is made.
+    signal?.throwIfAborted();
     if (!apiKey)
       throw new Error("An API key is required: set HAIL_API_KEY or apiKey");
     const origin = new URL(
@@ -335,13 +341,17 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
       );
     }
     signal?.throwIfAborted();
-    const raw = await this.api("/v1/sms", {
-      from: fromNumber,
-      to: peerNumber,
-      body,
-      recipient_consent: true,
-      message_type: "informational",
-    });
+    const raw = await this.api(
+      "/v1/sms",
+      {
+        from: fromNumber,
+        to: peerNumber,
+        body,
+        recipient_consent: true,
+        message_type: "informational",
+      },
+      signal,
+    );
     if (
       !isSms(raw) ||
       raw.from_e164 !== fromNumber ||
@@ -368,13 +378,22 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     this.decodeThreadId(threadId);
     const signal = options?.signal;
     let text = "";
+    let length = 0;
     for await (const chunk of textStream) {
       signal?.throwIfAborted();
-      if (typeof chunk === "string") text += chunk;
-      else if (chunk.type === "markdown_text") text += chunk.text;
-      // The reply can no longer be sent, so stop the stream now.
-      if ([...text].length > SMS_MAX) throw new Error(TOO_LONG);
+      const piece =
+        typeof chunk === "string"
+          ? chunk
+          : chunk.type === "markdown_text"
+            ? chunk.text
+            : "";
+      text += piece;
+      length += [...piece].length;
+      // The reply can no longer be sent, so stop reading.
+      if (length > SMS_MAX) throw new Error(TOO_LONG);
     }
+    // Chat SDK ends the stream quietly on abort, so check again here.
+    signal?.throwIfAborted();
     return this.send(threadId, { markdown: text }, signal);
   }
 

@@ -453,6 +453,36 @@ describe("streaming", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(bodies).toEqual([]);
   });
+  it("sends nothing when the stream ends because the turn was aborted", async () => {
+    const { hail, bodies } = recording();
+    const controller = new AbortController();
+    async function* endsOnAbort() {
+      yield "partial";
+      controller.abort();
+    }
+    await expect(
+      hail.stream(threadId, endsOnAbort(), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while the API key resolves", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      apiKey: async () => {
+        controller.abort();
+        return "test-key";
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
   it("sends nothing when the turn is aborted while consent is checked", async () => {
     const controller = new AbortController();
     const bodies: unknown[] = [];
