@@ -311,7 +311,7 @@ describe("documented setup", () => {
     bots.push(bot);
     const runs: { message: string; skipped: string[] }[] = [];
     bot.onDirectMessage(async (_thread, message, _channel, context) => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       runs.push({
         message: message.text,
         skipped: (context?.skipped ?? []).map((m) => m.text),
@@ -340,7 +340,7 @@ describe("documented setup", () => {
     bots.push(bot);
     const handled: string[] = [];
     bot.onDirectMessage(async (_thread, message) => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       handled.push(message.text);
     });
     const tasks: Promise<unknown>[] = [];
@@ -366,11 +366,11 @@ describe("documented setup", () => {
       adapters: { hail },
       state: createMemoryState(),
     });
-    bots.push(bot);
-    await bot.initialize();
     await expect(bot.openDM(peer)).rejects.toThrow("Cannot infer adapter");
+    await bot.initialize();
     const thread = bot.thread(await hail.openDM(peer));
     await thread.post("Hello");
+    await bot.shutdown();
     expect(bodies).toEqual([
       {
         from,
