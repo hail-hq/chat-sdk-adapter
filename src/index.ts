@@ -77,11 +77,12 @@ function retryAfterMs(header: string | null): number | undefined {
   const date = /[a-z]/i.test(value) ? Date.parse(value) : NaN;
   return Number.isFinite(date) ? Math.max(date - Date.now(), 0) : undefined;
 }
-/** A timeout or network failure. Redirects and bad custom fetches fail the same way again. */
+/** A timeout or network failure. Redirects, bad headers and other errors fail the same way again. */
 function transient(error: unknown): boolean {
   if (error instanceof Error && error.name === "TimeoutError") return true;
   return (
     error instanceof TypeError &&
+    /fetch failed|failed to fetch|network/i.test(error.message) &&
     !/redirect/i.test(String((error as { cause?: unknown }).cause ?? ""))
   );
 }
@@ -341,12 +342,10 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
             signal: AbortSignal.timeout(30_000),
             headers: {
               Authorization: `Bearer ${apiKey}`,
-              ...(idempotencyKey
-                ? {
-                    "Content-Type": "application/json",
-                    "Idempotency-Key": idempotencyKey,
-                  }
-                : {}),
+              ...(body === undefined
+                ? {}
+                : { "Content-Type": "application/json" }),
+              ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
             },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           },
@@ -359,7 +358,8 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         continue;
       }
       if (response.ok) return await response.json();
-      await response.body?.cancel();
+      // The body is not needed. A failed cancel must not hide the status.
+      await response.body?.cancel().catch(() => undefined);
       const error = new HailApiError(
         response.status,
         retryAfterMs(response.headers.get("retry-after")),

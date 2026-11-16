@@ -613,6 +613,12 @@ describe("send retries", () => {
         },
         "bad custom fetch",
       ],
+      [
+        async () => {
+          throw new TypeError("invalid header value");
+        },
+        "invalid header value",
+      ],
     ];
     for (const [respond, expected] of cases) {
       const fetch = vi.fn(respond);
