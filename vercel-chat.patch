@@ -1,7 +1,7 @@
 Prepared against vercel/chat 990411ea2b6b3aeb01ef0bcf44cd2e0ccb320b93
-Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/1e9099ea7881cd5fc31731ea05a0ebff9f6db562
-Package: https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.0
-Announcement: https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0
+Hail adapter source: https://github.com/hail-hq/chat-sdk-adapter/tree/8c8b8b83eeb63d9fc78355e6ddfbb620a0c79ccc
+Package: https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.1
+Original announcement: https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0
 
 diff --git a/.changeset/hail-adapter.md b/.changeset/hail-adapter.md
 new file mode 100644
@@ -17,7 +17,7 @@ index 0000000..ca52f80
 +Add the Hail vendor-official SMS adapter to the catalog, docs, and CLI scaffold.
 diff --git a/apps/docs/content/adapters/vendor-official/hail.mdx b/apps/docs/content/adapters/vendor-official/hail.mdx
 new file mode 100644
-index 0000000..faa3743
+index 0000000..844c083
 --- /dev/null
 +++ b/apps/docs/content/adapters/vendor-official/hail.mdx
 @@ -0,0 +1,164 @@
@@ -180,8 +180,8 @@ index 0000000..faa3743
 +## Resources
 +
 +- [Hail](https://hail.so)
-+- [Published npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter)
-+- [Release announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
++- [Published npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.1)
++- [Original launch announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
 +- [Adapter source and Next.js example](https://github.com/hail-hq/chat-sdk-adapter)
 +- [Hail Chat SDK documentation](https://hail.so/docs/webhooks#chat-sdk)
 +- [Adapter issues](https://github.com/hail-hq/chat-sdk-adapter/issues)
@@ -220,7 +220,7 @@ index a13c229..5ef9297 100644
  /**
 diff --git a/packages/catalog/src/adapters/vendor-official/hail.ts b/packages/catalog/src/adapters/vendor-official/hail.ts
 new file mode 100644
-index 0000000..de8f125
+index 0000000..13b5d87
 --- /dev/null
 +++ b/packages/catalog/src/adapters/vendor-official/hail.ts
 @@ -0,0 +1,61 @@
@@ -281,7 +281,7 @@ index 0000000..de8f125
 +  packageName: "@hail-hq/chat-sdk-adapter",
 +  peerDeps: [],
 +  readme:
-+    "https://github.com/hail-hq/chat-sdk-adapter/tree/1e9099ea7881cd5fc31731ea05a0ebff9f6db562",
++    "https://github.com/hail-hq/chat-sdk-adapter/tree/8c8b8b83eeb63d9fc78355e6ddfbb620a0c79ccc",
 +  slug: "hail",
 +  type: "platform",
 +} as const satisfies CatalogAdapter;

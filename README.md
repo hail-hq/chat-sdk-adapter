@@ -1,6 +1,6 @@
 # Hail adapter for Chat SDK
 
-[Hail](https://hail.so) · [Documentation](https://hail.so/docs/webhooks#chat-sdk) · [npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter) · [Release announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
+[Hail](https://hail.so) · [Documentation](https://hail.so/docs/webhooks#chat-sdk) · [npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter) · [Original launch announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
 
 [Hail](https://hail.so) gives AI agents a phone number, an inbox, and a voice. It supports text messages, email, and inbound and outbound phone calls.
 
