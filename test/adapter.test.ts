@@ -151,6 +151,8 @@ describe("webhooks", () => {
       ["HELP", "HELP"],
       ["help me with my order", null],
       ["YES", undefined],
+      ["thanks", ""],
+      ["ok", "UNKNOWN"],
     ];
     for (const [index, [body, keyword]] of texts.entries()) {
       const data = {
@@ -164,36 +166,52 @@ describe("webhooks", () => {
       );
       expect(response.status).toBe(200);
     }
-    expect(seen).toEqual(["help me with my order", "YES"]);
+    expect(seen).toEqual(["help me with my order", "YES", "thanks", "ok"]);
   });
-  it("rejects bodies over 1 MB before checking them", async () => {
-    const big = JSON.stringify({
-      ...event,
-      data: { ...event.data, body: "a".repeat(1024 * 1024) },
-    });
+  it("rejects bodies over 1 MB", async () => {
+    const cap = 1024 * 1024;
     // Declared size: refused before the body is read.
-    const declared = new Request("https://bot.example", {
+    const small = signed("{}");
+    const declared = new Request(small.url, {
       method: "POST",
       body: "{}",
-      headers: { "content-length": String(1024 * 1024 + 1) },
+      headers: {
+        "x-hail-signature": small.headers.get("x-hail-signature") as string,
+        "content-length": String(cap + 1),
+      },
     });
     expect((await adapter().handleWebhook(declared)).status).toBe(413);
     expect(declared.bodyUsed).toBe(false);
-    // No declared size: reading stops past the cap.
-    expect((await adapter().handleWebhook(signed(big))).status).toBe(413);
-    // Streamed with no declared size.
-    const request = signed(big);
-    const stream = new Request(request.url, {
+    // No declared size: reading stops 1 byte past the cap.
+    const over = signed("x".repeat(cap + 1));
+    expect(over.headers.get("content-length")).toBeNull();
+    expect((await adapter().handleWebhook(over)).status).toBe(413);
+    // At the cap, the body is read and checked as usual.
+    expect(
+      (await adapter().handleWebhook(signed("x".repeat(cap)))).status,
+    ).toBe(400);
+  });
+  it("checks the signature header before reading the body", async () => {
+    const unsigned = new Request("https://bot.example", {
+      method: "POST",
+      body: "x".repeat(2 * 1024 * 1024),
+    });
+    expect((await adapter().handleWebhook(unsigned)).status).toBe(401);
+    expect(unsigned.bodyUsed).toBe(false);
+  });
+  it("answers 400 when the body cannot be read", async () => {
+    const request = signed("{}");
+    const broken = new Request(request.url, {
       method: "POST",
       headers: request.headers,
-      body: new Blob([big]).stream(),
+      body: new ReadableStream({
+        pull(controller) {
+          controller.error(new Error("connection reset"));
+        },
+      }),
       duplex: "half",
     } as RequestInit);
-    expect(stream.headers.get("content-length")).toBeNull();
-    expect((await adapter().handleWebhook(stream)).status).toBe(413);
-    // Just under the cap is read and checked as usual.
-    const under = "x".repeat(1024 * 1024);
-    expect((await adapter().handleWebhook(signed(under))).status).toBe(400);
+    expect((await adapter().handleWebhook(broken)).status).toBe(400);
   });
   it("ignores other events and other Hail numbers", async () => {
     expect(

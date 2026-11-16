@@ -75,13 +75,7 @@ async function readBody(
     }
     parts.push(value);
   }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const part of parts) {
-    body.set(part, offset);
-    offset += part.byteLength;
-  }
-  return body;
+  return Buffer.concat(parts, size);
 }
 async function credential(
   value: HailCredential | undefined,
@@ -181,8 +175,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
     if (!secret)
       return new Response("Webhook secret is not configured", { status: 503 });
-    const body = await readBody(request, WEBHOOK_MAX_BYTES);
-    if (!body) return new Response("Payload too large", { status: 413 });
+    // Check the header before reading, so unsigned requests cost nothing.
     const match = SIGNATURE.exec(request.headers.get("x-hail-signature") ?? "");
     if (
       !match ||
@@ -191,6 +184,14 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     ) {
       return new Response("Invalid signature", { status: 401 });
     }
+    let body: Uint8Array | null;
+    try {
+      body = await readBody(request, WEBHOOK_MAX_BYTES);
+    } catch {
+      // The sender closed the connection mid-upload.
+      return new Response("Could not read body", { status: 400 });
+    }
+    if (!body) return new Response("Payload too large", { status: 413 });
     const expected = createHmac("sha256", secret)
       .update(`${match[1]}.`)
       .update(body)
@@ -224,7 +225,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     if (data.to !== this.fromNumber())
       return new Response(null, { status: 200 });
     // Hail (or the carrier) answers STOP, START and HELP. The bot must not.
-    if (typeof data.compliance_keyword === "string")
+    if (["STOP", "START", "HELP"].includes(String(data.compliance_keyword)))
       return new Response(null, { status: 200 });
     if (!this.chat)
       return new Response("Adapter is not initialized", { status: 503 });
