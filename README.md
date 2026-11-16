@@ -134,7 +134,8 @@ Use HTTPS for remote servers. Requests have a 30-second timeout and reject redir
 ## Behavior and feature support
 
 - Incoming `sms.received` events trigger `onDirectMessage`, or `onNewMention` when no direct-message handler exists. Sender text stays literal.
-- `thread.post()` sends informational SMS. Strings and raw text remain unchanged; Markdown and AST content are sent as text with Markdown syntax. Empty messages and messages over 1,600 Unicode code points fail before sending.
+- `thread.post()` sends informational SMS. Strings and raw text are sent unchanged. Markdown, AST and streamed replies are sent as plain text: formatting marks are removed, and link URLs and list markers stay. Struck text keeps `~` marks, so an old price still reads as old.
+- Empty messages and messages over 1,600 Unicode code points fail before sending. The limit applies to the text after formatting is removed.
 - `openDM(peerNumber)` returns `hail:{yourNumber}:{peerNumber}`. The configured Hail number and the peer scope both threads and channels, isolating state between conversations.
 - Every webhook requires a valid HMAC-SHA256 `X-Hail-Signature` over the original bytes and a timestamp within five minutes. Other event types and texts to other Hail numbers are acknowledged without running handlers.
 - Chat SDK deduplicates message IDs within its configured `dedupeTtlMs`. Hail retries can outlive this window; do not assume exactly-once processing. A retry inside the window does not run your handler again, even if the first run threw. The adapter does not retry outbound sends automatically.

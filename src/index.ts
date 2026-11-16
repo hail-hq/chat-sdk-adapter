@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   Message,
   NotImplementedError,
-  stringifyMarkdown,
   type Adapter,
   type AdapterPostableMessage,
   type ChatInstance,
@@ -21,6 +20,7 @@ import type {
   HailSms,
   HailThreadId,
 } from "./types.js";
+import { astToSms, markdownToSms } from "./plain-text.js";
 export type {
   HailAdapterConfig,
   HailCredential,
@@ -29,6 +29,9 @@ export type {
 } from "./types.js";
 
 const SMS_MAX = 1600;
+// Markdown marks shrink when rendered, so a stream may run longer than one SMS
+// before rendering. Past this many UTF-16 units, stop reading.
+const STREAM_READ_MAX = SMS_MAX * 4;
 const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
@@ -247,7 +250,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
   }
 
   renderFormatted(content: FormattedContent): string {
-    return stringifyMarkdown(content).trim();
+    return astToSms(content);
   }
 
   private text(message: AdapterPostableMessage): string {
@@ -260,7 +263,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     ) {
       throw new Error("Hail SMS does not support files or attachments");
     }
-    if ("markdown" in message) return message.markdown;
+    if ("markdown" in message) return markdownToSms(message.markdown);
     if ("raw" in message) return message.raw;
     if ("ast" in message) return this.renderFormatted(message.ast);
     throw new NotImplementedError(
@@ -381,10 +384,8 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
       signal?.throwIfAborted();
       if (typeof chunk === "string") text += chunk;
       else if (chunk.type === "markdown_text") text += chunk.text;
-      // UTF-16 length is never below the code point count, so the full
-      // count runs only near the limit. Over it, stop reading.
-      if (text.length > SMS_MAX && [...text].length > SMS_MAX)
-        throw new Error(TOO_LONG);
+      // The limit applies to the rendered text, checked when sending.
+      if (text.length > STREAM_READ_MAX) throw new Error(TOO_LONG);
     }
     // Chat SDK ends the stream quietly on abort, so check again here.
     signal?.throwIfAborted();
