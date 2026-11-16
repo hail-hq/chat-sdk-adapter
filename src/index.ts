@@ -29,8 +29,6 @@ export type {
 } from "./types.js";
 
 const SMS_MAX = 1600;
-// Hail webhook bodies are a few KB. Anything bigger is not from Hail.
-const WEBHOOK_MAX_BYTES = 1024 * 1024;
 const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
@@ -55,6 +53,8 @@ function isSms(value: unknown): value is HailSms {
     Number.isFinite(Date.parse(value.requested_at))
   );
 }
+// Hail webhook bodies are a few KB. Anything bigger is not from Hail.
+const WEBHOOK_MAX_BYTES = 1024 * 1024;
 /** Read at most `max` bytes. Returns null when the body is bigger. */
 async function readBody(
   request: Request,
