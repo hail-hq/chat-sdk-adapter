@@ -29,9 +29,6 @@ export type {
 } from "./types.js";
 
 const SMS_MAX = 1600;
-// Waits before each send retry. Hail stores the result for each idempotency
-// key, so a retry returns the first send instead of sending again.
-const SEND_RETRY_DELAYS_MS = [1_000, 4_000];
 const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
@@ -78,6 +75,9 @@ function retryAfterMs(header: string | null): number | undefined {
   const date = Date.parse(header);
   return Number.isFinite(date) ? Math.max(date - Date.now(), 0) : undefined;
 }
+// Waits before each send retry. Hail stores the result for each idempotency
+// key, so a retry returns the first send instead of sending again.
+const SEND_RETRY_DELAYS_MS = [1_000, 4_000];
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
