@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Chat, NotImplementedError } from "chat";
+import { Chat, NotImplementedError, type StreamChunk } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createHailAdapter } from "../src/index.js";
 const from = "+14155550100",
@@ -290,6 +290,100 @@ describe("background processing", () => {
   });
 });
 
+describe("documented setup", () => {
+  function burstEvent(n: number) {
+    return JSON.stringify({
+      ...event,
+      data: {
+        ...event.data,
+        id: `fd658fd6-50ea-4248-acb1-3023bd51da0${n}`,
+        body: `text ${n}`,
+      },
+    });
+  }
+  it("handles texts sent in a row with the queue strategy", async () => {
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail: adapter() },
+      state: createMemoryState(),
+      concurrency: "queue",
+      logger: "silent",
+    });
+    bots.push(bot);
+    const runs: { message: string; skipped: string[] }[] = [];
+    bot.onDirectMessage(async (_thread, message, _channel, context) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      runs.push({
+        message: message.text,
+        skipped: (context?.skipped ?? []).map((m) => m.text),
+      });
+    });
+    const tasks: Promise<unknown>[] = [];
+    const options = { waitUntil: (task: Promise<unknown>) => tasks.push(task) };
+    for (const n of [1, 2, 3]) {
+      expect(
+        (await bot.webhooks.hail(signed(burstEvent(n)), options)).status,
+      ).toBe(200);
+    }
+    await Promise.all(tasks);
+    expect(runs).toEqual([
+      { message: "text 1", skipped: [] },
+      { message: "text 3", skipped: ["text 2"] },
+    ]);
+  });
+  it("loses a text sent during a reply with the default drop strategy", async () => {
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail: adapter() },
+      state: createMemoryState(),
+      logger: "silent",
+    });
+    bots.push(bot);
+    const handled: string[] = [];
+    bot.onDirectMessage(async (_thread, message) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      handled.push(message.text);
+    });
+    const tasks: Promise<unknown>[] = [];
+    const options = { waitUntil: (task: Promise<unknown>) => tasks.push(task) };
+    for (const n of [1, 2]) {
+      expect(
+        (await bot.webhooks.hail(signed(burstEvent(n)), options)).status,
+      ).toBe(200);
+    }
+    await Promise.allSettled(tasks);
+    expect(handled).toEqual(["text 1"]);
+  });
+  it("starts a conversation through the adapter's openDM", async () => {
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return Response.json(sms);
+      },
+    });
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    await expect(bot.openDM(peer)).rejects.toThrow("Cannot infer adapter");
+    await bot.initialize();
+    const thread = bot.thread(await hail.openDM(peer));
+    await thread.post("Hello");
+    await bot.shutdown();
+    expect(bodies).toEqual([
+      {
+        from,
+        to: peer,
+        body: "Hello",
+        recipient_consent: true,
+        message_type: "informational",
+      },
+    ]);
+  });
+});
 describe("outbound", () => {
   it("resolves credentials per request and refuses redirects", async () => {
     let token = "first";
@@ -381,6 +475,149 @@ describe("outbound", () => {
     await expect(
       adapter({ apiKey: undefined }).postMessage(threadId, "Hello"),
     ).rejects.toThrow(/API key/i);
+  });
+});
+describe("streaming", () => {
+  async function* chunks<T>(...values: T[]) {
+    for (const value of values) yield value;
+  }
+  function recording() {
+    const bodies: string[] = [];
+    const hail = adapter({
+      fetch: async (_url: URL, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)).body as string;
+        bodies.push(body);
+        return Response.json({ ...sms, body });
+      },
+    });
+    return { hail, bodies };
+  }
+  it("sends a streamed reply as one SMS, without a placeholder", async () => {
+    const { hail, bodies } = recording();
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    bot.onDirectMessage(async (thread) => {
+      await thread.post(chunks("Hel", "lo ", "world"));
+    });
+    expect((await bot.webhooks.hail(signed())).status).toBe(200);
+    expect(bodies).toEqual(["Hello world"]);
+    const history: string[] = [];
+    for await (const message of bot.thread(threadId).messages)
+      history.push(message.text);
+    expect(history).toContain("Hello world");
+  });
+  it("keeps only text chunks", async () => {
+    const { hail, bodies } = recording();
+    const raw = await hail.stream(
+      threadId,
+      chunks<string | StreamChunk>(
+        "A",
+        { type: "markdown_text" as const, text: "B" },
+        { type: "plan_update" as const, title: "ignored" },
+        "C",
+      ),
+    );
+    expect(raw.id).toBe(id);
+    expect(bodies).toEqual(["ABC"]);
+  });
+  it("applies SMS limits to the whole streamed reply before sending", async () => {
+    const { hail, bodies } = recording();
+    await expect(hail.stream(threadId, chunks("", " "))).rejects.toThrow(
+      "SMS text cannot be empty",
+    );
+    await expect(
+      hail.stream(threadId, chunks("a".repeat(1000), "a".repeat(601))),
+    ).rejects.toThrow("at most 1600");
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the stream is aborted", async () => {
+    const { hail, bodies } = recording();
+    const controller = new AbortController();
+    async function* aborted() {
+      yield "partial";
+      controller.abort();
+      yield "more";
+    }
+    await expect(
+      hail.stream(threadId, aborted(), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the stream ends because the turn was aborted", async () => {
+    const { hail, bodies } = recording();
+    const controller = new AbortController();
+    async function* endsOnAbort() {
+      yield "partial";
+      controller.abort();
+    }
+    await expect(
+      hail.stream(threadId, endsOnAbort(), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while the API key resolves", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      apiKey: async () => {
+        controller.abort();
+        return "test-key";
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("sends nothing when the turn is aborted while consent is checked", async () => {
+    const controller = new AbortController();
+    const bodies: unknown[] = [];
+    const hail = adapter({
+      recipientConsent: async () => {
+        controller.abort();
+        return true;
+      },
+      fetch: async (_url: URL, init: RequestInit) => {
+        bodies.push(init.body);
+        return Response.json(sms);
+      },
+    });
+    await expect(
+      hail.stream(threadId, chunks("Hello"), { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(bodies).toEqual([]);
+  });
+  it("counts an emoji split across chunks once", async () => {
+    const { hail, bodies } = recording();
+    const emoji = "😀";
+    await hail.stream(
+      threadId,
+      chunks("a".repeat(1599), emoji[0] as string, emoji[1] as string),
+    );
+    expect(bodies).toEqual(["a".repeat(1599) + emoji]);
+  });
+  it("stops reading a stream as soon as the reply is too long", async () => {
+    const { hail, bodies } = recording();
+    let pulled = 0;
+    async function* endless() {
+      while (true) {
+        pulled++;
+        yield "a".repeat(500);
+      }
+    }
+    await expect(hail.stream(threadId, endless())).rejects.toThrow(
+      "at most 1600",
+    );
+    expect(pulled).toBe(4);
+    expect(bodies).toEqual([]);
   });
 });
 describe("scaffold environment", () => {
