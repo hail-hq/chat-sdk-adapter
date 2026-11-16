@@ -604,7 +604,7 @@ describe("streaming", () => {
     );
     expect(bodies).toEqual(["a".repeat(1599) + emoji]);
   });
-  it("stops reading a stream as soon as the reply is too long", async () => {
+  it("stops reading a stream once it is far over one SMS", async () => {
     const { hail, bodies } = recording();
     let pulled = 0;
     async function* endless() {
@@ -616,8 +616,124 @@ describe("streaming", () => {
     await expect(hail.stream(threadId, endless())).rejects.toThrow(
       "at most 1600",
     );
-    expect(pulled).toBe(4);
+    // 13 chunks pass 6,400 characters, four times one SMS.
+    expect(pulled).toBe(13);
     expect(bodies).toEqual([]);
+  });
+  it("measures the rendered text, not the Markdown", async () => {
+    const { hail, bodies } = recording();
+    // 2,000 characters of Markdown render to 749 characters.
+    const words = Array.from({ length: 250 }, () => "**ab**").join(" ");
+    expect(words.length).toBe(1749);
+    await hail.stream(threadId, chunks(words, " ".repeat(251)));
+    expect(bodies).toEqual([Array.from({ length: 250 }, () => "ab").join(" ")]);
+  });
+});
+
+describe("plain text", () => {
+  function recording() {
+    const bodies: string[] = [];
+    const hail = adapter({
+      fetch: async (_url: URL, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)).body as string;
+        bodies.push(body);
+        return Response.json({ ...sms, body });
+      },
+    });
+    return { hail, bodies };
+  }
+  it("sends strings and raw text unchanged", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, "**Hi** [x](https://e.com)");
+    await hail.postMessage(threadId, { raw: "# not a heading" });
+    expect(bodies).toEqual(["**Hi** [x](https://e.com)", "# not a heading"]);
+  });
+  it("removes Markdown marks and keeps link URLs", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      markdown: [
+        "# Order update",
+        "",
+        "Your **order** _shipped_. ~~Late~~ Track it [here](https://example.com/t/1).",
+        "Or open <https://example.com/x>, https://example.com/y or [mail](mailto:help@example.com).",
+        "Run `pnpm test`.",
+      ].join("\n"),
+    });
+    expect(bodies).toEqual([
+      [
+        "Order update",
+        "",
+        "Your order shipped. Late Track it here (https://example.com/t/1).",
+        "Or open https://example.com/x, https://example.com/y or mail (mailto:help@example.com).",
+        "Run pnpm test.",
+      ].join("\n"),
+    ]);
+  });
+  it("keeps list markers, code and table cells", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      markdown: [
+        "* One",
+        "* Two",
+        "  1. Inner",
+        "",
+        "3. Third",
+        "4. Fourth",
+        "",
+        "> Quoted",
+        "",
+        "```",
+        "**kept**",
+        "```",
+        "",
+        "---",
+        "",
+        "| A | B |",
+        "|---|---|",
+        "| 1 | 2 |",
+      ].join("\n"),
+    });
+    const [body] = bodies;
+    expect(body).toContain("- One\n- Two\n  1. Inner");
+    expect(body).toContain("3. Third\n4. Fourth");
+    expect(body).toContain("Quoted\n\n**kept**");
+    expect(body).not.toContain("---");
+    expect(body).toMatch(/A\s*\|\s*B/);
+    expect(body).toMatch(/1\s*\|\s*2/);
+  });
+  it("renders AST messages the same way", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      ast: {
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "Hi" }] },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://e.com",
+                children: [{ type: "text", value: "site" }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(bodies).toEqual(["Hi site (https://e.com)"]);
+  });
+  it("applies the 1,600 limit to the rendered text", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, { markdown: `**${"a".repeat(1600)}**` });
+    await expect(
+      hail.postMessage(threadId, { markdown: `**${"a".repeat(1601)}**` }),
+    ).rejects.toThrow("at most 1600");
+    await expect(
+      hail.postMessage(threadId, { markdown: "---" }),
+    ).rejects.toThrow("SMS text cannot be empty");
+    expect(bodies).toEqual(["a".repeat(1600)]);
   });
 });
 describe("scaffold environment", () => {
