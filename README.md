@@ -141,7 +141,8 @@ Use HTTPS for remote servers. Requests have a 30-second timeout and reject redir
 - Chat SDK persists observed inbound and outbound messages in your state adapter. `thread.messages` uses this cache; older workspace messages are not backfilled. `fetchMessages()` returns no native history, enabling the SDK fallback. `fetchMessage()` reads a message by UUID and checks that it belongs to the exact phone pair; only `404` becomes `null`.
 - Streamed replies (`thread.post(textStream)`) are sent as one SMS when the stream ends. An empty, aborted, or over-1,600 reply sends nothing and throws.
 - SMS has no typing indicator, so `startTyping()` is a no-op. Editing, deletion, and reactions throw `NotImplementedError`. Files, attachments, and cards are rejected. MMS, iMessage, RCS, voice, email, and rich controls are outside this adapter's scope.
-- Each send carries an `Idempotency-Key`. After a timeout, network error, `409` or `5xx`, the adapter retries up to 2 times with the same key, so Hail never sends the reply twice. Reads are not retried.
+- Each send carries an `Idempotency-Key`. After a timeout, network error, `409` or `5xx`, the adapter retries up to 2 times with the same key, so its own retries never send the reply twice. Reads are not retried.
+- A send can take up to about 95 seconds (3 attempts of up to 30 seconds). Give serverless functions a longer time limit.
 - Failed HTTP responses throw `HailApiError` with a numeric `status`, plus `retryAfterMs` when Hail sends `Retry-After` (for example on `429`). Response bodies are excluded from errors.
 - If every send attempt fails, the adapter throws the last error. The text may still have been sent, so check it in Hail before you send it again.
 

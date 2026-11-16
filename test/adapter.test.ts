@@ -487,6 +487,22 @@ describe("outbound", () => {
       .postMessage(threadId, "Hello")
       .catch((e: unknown) => e)) as HailApiError;
     expect(missing).toMatchObject({ status: 403, retryAfterMs: undefined });
+    for (const [header, expected] of [
+      ["7.5", 7500],
+      ["soon", undefined],
+      ["-1", undefined],
+    ] as const) {
+      const error = (await adapter({
+        fetch: async () =>
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": header },
+          }),
+      })
+        .postMessage(threadId, "Hello")
+        .catch((e: unknown) => e)) as HailApiError;
+      expect(error.retryAfterMs).toBe(expected);
+    }
   });
   it("uses the versioned self-host API and requires an API key", async () => {
     const urls: string[] = [];
@@ -566,6 +582,72 @@ describe("send retries", () => {
     )) as { error: Error };
     expect(failed.error.message).toBe("fetch failed");
     expect(network.fetch).toHaveBeenCalledTimes(3);
+  });
+  it("does not retry a replayed result, a long Retry-After, a redirect or a custom error", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const cases: [() => Promise<Response>, number | string][] = [
+      [
+        async () =>
+          new Response(null, {
+            status: 502,
+            headers: { "Idempotency-Replay": "true" },
+          }),
+        502,
+      ],
+      [
+        async () =>
+          new Response(null, { status: 503, headers: { "Retry-After": "30" } }),
+        503,
+      ],
+      [
+        async () => {
+          throw new TypeError("fetch failed", {
+            cause: new Error("unexpected redirect"),
+          });
+        },
+        "fetch failed",
+      ],
+      [
+        async () => {
+          throw new Error("bad custom fetch");
+        },
+        "bad custom fetch",
+      ],
+    ];
+    for (const [respond, expected] of cases) {
+      const fetch = vi.fn(respond);
+      const { error } = (await settle(
+        adapter({ fetch }).postMessage(threadId, "Hello"),
+      )) as { error: HailApiError };
+      if (typeof expected === "number") expect(error.status).toBe(expected);
+      else expect(error.message).toBe(expected);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("waits for a short Retry-After before retrying", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "Date"] });
+    const times: number[] = [];
+    let calls = 0;
+    const fetch = vi.fn(async () => {
+      times.push(Date.now());
+      return calls++ === 0
+        ? new Response(null, { status: 503, headers: { "Retry-After": "7" } })
+        : Response.json(sms);
+    });
+    await settle(adapter({ fetch }).postMessage(threadId, "Hello"));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect((times[1] as number) - (times[0] as number)).toBeGreaterThanOrEqual(
+      7000,
+    );
+  });
+  it("throws the first failure when Hail still reports the send in progress", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const timeout = new DOMException("timed out", "TimeoutError");
+    const { hail } = sends(timeout, 409, 409);
+    const { error } = (await settle(hail.postMessage(threadId, "Hello"))) as {
+      error: Error;
+    };
+    expect(error).toBe(timeout);
   });
   it("does not retry other client errors", async () => {
     for (const status of [400, 401, 402, 403, 422]) {

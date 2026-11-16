@@ -70,14 +70,26 @@ export class HailApiError extends Error {
   }
 }
 function retryAfterMs(header: string | null): number | undefined {
-  if (header === null) return undefined;
-  if (/^[0-9]+$/.test(header.trim())) return Number(header) * 1000;
-  const date = Date.parse(header);
+  const value = header?.trim() ?? "";
+  if (/^[0-9]+(\.[0-9]+)?$/.test(value))
+    return Math.round(Number(value) * 1000);
+  // An HTTP date always names a weekday or month.
+  const date = /[a-z]/i.test(value) ? Date.parse(value) : NaN;
   return Number.isFinite(date) ? Math.max(date - Date.now(), 0) : undefined;
+}
+/** A timeout or network failure. Redirects and bad custom fetches fail the same way again. */
+function transient(error: unknown): boolean {
+  if (error instanceof Error && error.name === "TimeoutError") return true;
+  return (
+    error instanceof TypeError &&
+    !/redirect/i.test(String((error as { cause?: unknown }).cause ?? ""))
+  );
 }
 // Waits before each send retry. Hail stores the result for each idempotency
 // key, so a retry returns the first send instead of sending again.
 const SEND_RETRY_DELAYS_MS = [1_000, 4_000];
+// A longer Retry-After than this is returned to the caller instead.
+const SEND_RETRY_MAX_WAIT_MS = 10_000;
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -317,6 +329,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     const retries = idempotencyKey ? SEND_RETRY_DELAYS_MS : [];
     // The caller's signal is not checked again: once a send may have reached
     // Hail, retries only find out what happened to it.
+    let firstError: unknown;
     for (let attempt = 0; ; attempt++) {
       let response: Response;
       try {
@@ -340,25 +353,33 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         );
       } catch (error) {
         // Network error or timeout: the send may or may not have reached Hail.
-        if (attempt >= retries.length) throw error;
+        if (attempt >= retries.length || !transient(error)) throw error;
+        firstError ??= error;
         await sleep(retries[attempt] as number);
         continue;
       }
       if (response.ok) return await response.json();
-      // 409: Hail is still handling the first attempt. 5xx: server error.
-      if (
-        attempt < retries.length &&
-        (response.status === 409 || response.status >= 500)
-      ) {
-        await response.body?.cancel();
-        await sleep(retries[attempt] as number);
-        continue;
-      }
       await response.body?.cancel();
-      throw new HailApiError(
+      const error = new HailApiError(
         response.status,
         retryAfterMs(response.headers.get("retry-after")),
       );
+      const wait = error.retryAfterMs ?? retries[attempt];
+      // 409: Hail is still handling the first attempt. 5xx: server error.
+      // A replayed response is Hail's stored result, so it will not change.
+      if (
+        wait !== undefined &&
+        wait <= SEND_RETRY_MAX_WAIT_MS &&
+        attempt < retries.length &&
+        (response.status === 409 || response.status >= 500) &&
+        response.headers.get("idempotency-replay") !== "true"
+      ) {
+        firstError ??= error;
+        await sleep(wait);
+        continue;
+      }
+      // Still 409 at the end: the first failure says more than "in progress".
+      throw response.status === 409 && firstError ? firstError : error;
     }
   }
 
