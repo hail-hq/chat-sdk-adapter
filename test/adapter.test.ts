@@ -133,6 +133,68 @@ describe("webhooks", () => {
       ).toBe(200);
     }
   });
+  it("skips texts Hail marks as STOP, START or HELP", async () => {
+    const hail = adapter();
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    const seen: string[] = [];
+    bot.onDirectMessage(async (_thread, message) => {
+      seen.push(message.text);
+    });
+    const texts: [string, unknown][] = [
+      ["STOP", "STOP"],
+      ["start", "START"],
+      ["HELP", "HELP"],
+      ["help me with my order", null],
+      ["YES", undefined],
+    ];
+    for (const [index, [body, keyword]] of texts.entries()) {
+      const data = {
+        ...event.data,
+        id: id.replace(/.$/, String(index)),
+        body,
+        ...(keyword === undefined ? {} : { compliance_keyword: keyword }),
+      };
+      const response = await bot.webhooks.hail(
+        signed(JSON.stringify({ ...event, data })),
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(seen).toEqual(["help me with my order", "YES"]);
+  });
+  it("rejects bodies over 1 MB before checking them", async () => {
+    const big = JSON.stringify({
+      ...event,
+      data: { ...event.data, body: "a".repeat(1024 * 1024) },
+    });
+    // Declared size: refused before the body is read.
+    const declared = new Request("https://bot.example", {
+      method: "POST",
+      body: "{}",
+      headers: { "content-length": String(1024 * 1024 + 1) },
+    });
+    expect((await adapter().handleWebhook(declared)).status).toBe(413);
+    expect(declared.bodyUsed).toBe(false);
+    // No declared size: reading stops past the cap.
+    expect((await adapter().handleWebhook(signed(big))).status).toBe(413);
+    // Streamed with no declared size.
+    const request = signed(big);
+    const stream = new Request(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: new Blob([big]).stream(),
+      duplex: "half",
+    } as RequestInit);
+    expect(stream.headers.get("content-length")).toBeNull();
+    expect((await adapter().handleWebhook(stream)).status).toBe(413);
+    // Just under the cap is read and checked as usual.
+    const under = "x".repeat(1024 * 1024);
+    expect((await adapter().handleWebhook(signed(under))).status).toBe(400);
+  });
   it("ignores other events and other Hail numbers", async () => {
     expect(
       (

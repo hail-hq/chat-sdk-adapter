@@ -29,6 +29,8 @@ export type {
 } from "./types.js";
 
 const SMS_MAX = 1600;
+// Hail webhook bodies are a few KB. Anything bigger is not from Hail.
+const WEBHOOK_MAX_BYTES = 1024 * 1024;
 const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
@@ -52,6 +54,34 @@ function isSms(value: unknown): value is HailSms {
     typeof value.requested_at === "string" &&
     Number.isFinite(Date.parse(value.requested_at))
   );
+}
+/** Read at most `max` bytes. Returns null when the body is bigger. */
+async function readBody(
+  request: Request,
+  max: number,
+): Promise<Uint8Array | null> {
+  if (Number(request.headers.get("content-length")) > max) return null;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      return null;
+    }
+    parts.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) {
+    body.set(part, offset);
+    offset += part.byteLength;
+  }
+  return body;
 }
 async function credential(
   value: HailCredential | undefined,
@@ -151,7 +181,8 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
     if (!secret)
       return new Response("Webhook secret is not configured", { status: 503 });
-    const body = new Uint8Array(await request.arrayBuffer());
+    const body = await readBody(request, WEBHOOK_MAX_BYTES);
+    if (!body) return new Response("Payload too large", { status: 413 });
     const match = SIGNATURE.exec(request.headers.get("x-hail-signature") ?? "");
     if (
       !match ||
@@ -191,6 +222,9 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     if (!phone(data.from) || typeof data.body !== "string")
       return new Response(null, { status: 200 });
     if (data.to !== this.fromNumber())
+      return new Response(null, { status: 200 });
+    // Hail (or the carrier) answers STOP, START and HELP. The bot must not.
+    if (typeof data.compliance_keyword === "string")
       return new Response(null, { status: 200 });
     if (!this.chat)
       return new Response("Adapter is not initialized", { status: 503 });
