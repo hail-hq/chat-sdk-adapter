@@ -168,7 +168,7 @@ index 0000000..844c083
 +
 +- The adapter supports SMS. It does not implement MMS, iMessage, RCS, voice, or email.
 +- Sends are informational messages. Empty text and text over 1,600 Unicode code points are rejected before calling Hail.
-+- Markdown is sent as plain text: formatting marks are removed, and link URLs stay. Files, attachments, and cards are rejected.
++- Markdown is sent as plain text: formatting marks are removed (struck text keeps `~`), and link URLs stay. Files, attachments, and cards are rejected.
 +- Editing, deletion, and reactions throw `NotImplementedError`. `startTyping()` does nothing because SMS has no typing indicator.
 +- The adapter requires the Node.js runtime and does not support the Edge runtime.
 +- Requests time out after 30 seconds and do not follow redirects. Outbound sends are not automatically retried; a timeout does not establish that a chargeable send failed.
