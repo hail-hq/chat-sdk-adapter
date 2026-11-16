@@ -663,7 +663,7 @@ describe("plain text", () => {
       [
         "Order update",
         "",
-        "Your order shipped. Late Track it here (https://example.com/t/1).",
+        "Your order shipped. ~Late~ Track it here (https://example.com/t/1).",
         "Or open https://example.com/x, https://example.com/y or mail (mailto:help@example.com).",
         "Run pnpm test.",
       ].join("\n"),
@@ -720,6 +720,30 @@ describe("plain text", () => {
     });
     expect(bodies).toEqual([
       "See docs (https://example.com/docs) and logo (https://example.com/logo.png).[n]\n\n[n] A note.",
+    ]);
+  });
+  it("keeps empty table cells, the first definition and HTML link URLs", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      markdown: [
+        "| Item | Old | New |",
+        "|---|---|---|",
+        "| Tea |  | $3 |",
+        "",
+        'See [docs][a], <a href="https://x.com/p">this</a> and [example.com](https://Example.com/).',
+        "",
+        "<details><summary>Hi</summary>Body</details>",
+        "",
+        "[a]: https://first.com",
+        "[a]: https://second.com",
+      ].join("\n"),
+    });
+    expect(bodies).toEqual([
+      [
+        "Item | Old | New\nTea |  | $3",
+        "See docs (https://first.com), this (https://x.com/p) and example.com.",
+        "Hi\nBody",
+      ].join("\n\n"),
     ]);
   });
   it("prints bare links once and drops HTML tags and comments", async () => {

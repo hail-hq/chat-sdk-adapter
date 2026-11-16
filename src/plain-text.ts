@@ -14,11 +14,16 @@ export function markdownToSms(markdown: string): string {
 export function astToSms(ast: Root): string {
   const definitions = new Map<string, string>();
   collectDefinitions(ast, definitions);
-  return blocks(ast.children, definitions, "\n\n").trim();
+  // Drop blank lines at the ends, but keep a leading code indent.
+  return blocks(ast.children, definitions, "\n\n")
+    .replace(/^(?:[ \t]*\n)+/, "")
+    .trimEnd();
 }
 
 function collectDefinitions(node: Nodes, into: Map<string, string>): void {
-  if (node.type === "definition") into.set(node.identifier, node.url);
+  // CommonMark: the first definition of a label wins.
+  if (node.type === "definition" && !into.has(node.identifier))
+    into.set(node.identifier, node.url);
   if ("children" in node)
     for (const child of node.children) collectDefinitions(child, into);
 }
@@ -38,10 +43,11 @@ function block(node: Nodes, definitions: Definitions): string {
   switch (node.type) {
     case "paragraph":
     case "heading":
-    case "tableCell":
       return inline(node.children, definitions);
     case "code":
       return node.value;
+    case "html":
+      return html(node.value).trim();
     case "blockquote":
       return blocks(node.children, definitions, "\n\n");
     case "list": {
@@ -63,8 +69,15 @@ function block(node: Nodes, definitions: Definitions): string {
     }
     // SMS has no fixed-width font, so cells are not padded.
     case "table":
+      // Empty cells stay, so values keep their column. One line per row.
       return node.children
-        .map((row) => blocks(row.children, definitions, " | "))
+        .map((row) =>
+          row.children
+            .map((cell) =>
+              inline(cell.children, definitions).replaceAll("\n", " "),
+            )
+            .join(" | "),
+        )
         .join("\n");
     case "footnoteDefinition":
       return `[${node.label ?? node.identifier}] ${blocks(node.children, definitions, "\n")}`;
@@ -77,7 +90,29 @@ function block(node: Nodes, definitions: Definitions): string {
 }
 
 function inline(nodes: readonly Nodes[], definitions: Definitions): string {
-  return nodes.map((node) => span(node, definitions)).join("");
+  let out = "";
+  // An inline <a href> is split into an opening tag, text and a closing tag.
+  let anchor: { url: string; start: number } | undefined;
+  for (const node of nodes) {
+    if (node.type === "html") {
+      const href = /^<a\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>$/i.exec(
+        node.value,
+      );
+      if (href) {
+        anchor = { url: href[1] as string, start: out.length };
+        continue;
+      }
+      if (anchor && /^<\/a\s*>$/i.test(node.value)) {
+        out =
+          out.slice(0, anchor.start) +
+          linked(out.slice(anchor.start), anchor.url);
+        anchor = undefined;
+        continue;
+      }
+    }
+    out += span(node, definitions);
+  }
+  return out;
 }
 
 function span(node: Nodes, definitions: Definitions): string {
@@ -87,6 +122,8 @@ function span(node: Nodes, definitions: Definitions): string {
       return node.value;
     case "html":
       return html(node.value);
+    case "delete":
+      return `~${inline(node.children, definitions)}~`;
     case "break":
       return "\n";
     case "link":
@@ -117,15 +154,19 @@ function fallback(node: Nodes, definitions: Definitions): string {
 function linked(text: string, url: string | undefined): string {
   if (!url) return text;
   if (!text) return url;
-  const bare = url.replace(/^(?:https?:\/\/|mailto:)/, "");
-  if (text === url || text === bare) return text;
+  const plain = (value: string) =>
+    value
+      .replace(/^(?:https?:\/\/|mailto:)/i, "")
+      .replace(/\/$/, "")
+      .toLowerCase();
+  if (plain(text) === plain(url)) return text;
   return `${text} (${url})`;
 }
 
-/** Raw HTML has no meaning in SMS: keep line breaks, drop tags and comments. */
+/** Raw HTML has no meaning in SMS: keep line breaks and text, drop tags and comments. */
 function html(value: string): string {
-  if (/^<br\s*\/?>$/i.test(value)) return "\n";
-  if (/^<!--[\s\S]*-->$/.test(value) || /^<\/?[a-z][^>]*>$/i.test(value))
-    return "";
-  return value;
+  return value
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>|<\/(?:p|div|summary|li|tr|h[1-6])\s*>/gi, "\n")
+    .replace(/<\/?[a-z][^>]*>/gi, "");
 }

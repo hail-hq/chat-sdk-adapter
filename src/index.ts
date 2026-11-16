@@ -265,7 +265,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     }
     if ("markdown" in message) return markdownToSms(message.markdown);
     if ("raw" in message) return message.raw;
-    if ("ast" in message) return astToSms(message.ast);
+    if ("ast" in message) return this.renderFormatted(message.ast);
     throw new NotImplementedError(
       "Hail SMS supports text messages",
       "postMessage",
