@@ -1,6 +1,8 @@
 # Release and submit the Hail adapter
 
-The adapter is prepared as `@hail-hq/chat-sdk-adapter@0.1.0`. This document is a release checklist, not a publication record.
+`@hail-hq/chat-sdk-adapter@0.1.1` is [published on npm](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter/v/0.1.1) with provenance from the `v0.1.1` source tag. The [original launch announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0) and [Hail product documentation](https://hail.so/docs/webhooks#chat-sdk) are public. The Vercel listing requires separate review and acceptance.
+
+The 0.1.1 release workflow passed. Version 0.1.0 passed 33 automated tests, type checking, package and example builds, a clean registry installation and import, and a real SMS exchange with handset confirmation. The remaining sections describe future releases and the Vercel submission process.
 
 ## Validate the artifact
 
@@ -80,6 +82,8 @@ Vercel requires verified signed commits and DCO sign-off. Verify commit signing 
 The listing does not grant Vercel Connect registration or Vercel maintenance.
 
 ## Maintenance
+
+Use a release tag or commit for versioned announcement examples and the Vercel listing README. Use `main` for links explicitly described as the current development source. Keep the current npm version and source pin in sync when updating a submission, and retain old announcements and validation records as versioned history.
 
 Keep the package, README, Hail docs, Vercel catalog, and scaffold configuration in sync when the adapter changes.
 Test against new Chat SDK releases. Handle adapter bug reports in this repository.

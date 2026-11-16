@@ -1,5 +1,7 @@
 # Hail adapter for Chat SDK
 
+[Hail](https://hail.so) · [Documentation](https://hail.so/docs/webhooks#chat-sdk) · [npm package](https://www.npmjs.com/package/@hail-hq/chat-sdk-adapter) · [Original launch announcement](https://github.com/hail-hq/chat-sdk-adapter/releases/tag/v0.1.0)
+
 [Hail](https://hail.so) gives AI agents a phone number, an inbox, and a voice. It supports text messages, email, and inbound and outbound phone calls.
 
 This adapter connects Hail to [Vercel Chat SDK](https://chat-sdk.dev). The current release supports SMS: receive signed webhooks and reply through your Hail number using Chat SDK handlers. Hail's email and call APIs remain available directly; this adapter does not expose them yet.
