@@ -152,7 +152,7 @@ describe("webhooks", () => {
       ["help me with my order", null],
       ["YES", undefined],
       ["thanks", ""],
-      ["ok", "UNKNOWN"],
+      ["ok", "OPTOUT"],
     ];
     for (const [index, [body, keyword]] of texts.entries()) {
       const data = {
@@ -166,7 +166,8 @@ describe("webhooks", () => {
       );
       expect(response.status).toBe(200);
     }
-    expect(seen).toEqual(["help me with my order", "YES", "thanks", "ok"]);
+    // A future keyword is skipped too; an empty value is not a keyword.
+    expect(seen).toEqual(["help me with my order", "YES", "thanks"]);
   });
   it("rejects bodies over 1 MB", async () => {
     const cap = 1024 * 1024;

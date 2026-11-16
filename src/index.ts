@@ -225,7 +225,11 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     if (data.to !== this.fromNumber())
       return new Response(null, { status: 200 });
     // Hail (or the carrier) answers STOP, START and HELP. The bot must not.
-    if (["STOP", "START", "HELP"].includes(String(data.compliance_keyword)))
+    // Any other non-empty value is a keyword Hail added later: skip it too.
+    if (
+      typeof data.compliance_keyword === "string" &&
+      data.compliance_keyword.trim() !== ""
+    )
       return new Response(null, { status: 200 });
     if (!this.chat)
       return new Response("Adapter is not initialized", { status: 503 });
