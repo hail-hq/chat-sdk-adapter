@@ -680,6 +680,9 @@ describe("plain text", () => {
         "3. Third",
         "4. Fourth",
         "",
+        "- [x] Paid",
+        "- [ ] Shipped",
+        "",
         "> Quoted",
         "",
         "```",
@@ -688,18 +691,46 @@ describe("plain text", () => {
         "",
         "---",
         "",
-        "| A | B |",
-        "|---|---|",
-        "| 1 | 2 |",
+        "| Name | Link |",
+        "|------|------|",
+        "| Docs | [site](https://e.com) |",
       ].join("\n"),
     });
-    const [body] = bodies;
-    expect(body).toContain("- One\n- Two\n  1. Inner");
-    expect(body).toContain("3. Third\n4. Fourth");
-    expect(body).toContain("Quoted\n\n**kept**");
-    expect(body).not.toContain("---");
-    expect(body).toMatch(/A\s*\|\s*B/);
-    expect(body).toMatch(/1\s*\|\s*2/);
+    expect(bodies).toEqual([
+      [
+        "- One\n- Two\n  1. Inner",
+        "3. Third\n4. Fourth",
+        "- [x] Paid\n- [ ] Shipped",
+        "Quoted",
+        "**kept**",
+        "Name | Link\nDocs | site (https://e.com)",
+      ].join("\n\n"),
+    ]);
+  });
+  it("keeps reference links, images and footnotes", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      markdown: [
+        "See [docs][1] and ![logo][img].[^n]",
+        "",
+        "[1]: https://example.com/docs",
+        "[img]: https://example.com/logo.png",
+        "[^n]: A note.",
+      ].join("\n"),
+    });
+    expect(bodies).toEqual([
+      "See docs (https://example.com/docs) and logo (https://example.com/logo.png).[n]\n\n[n] A note.",
+    ]);
+  });
+  it("prints bare links once and drops HTML tags and comments", async () => {
+    const { hail, bodies } = recording();
+    await hail.postMessage(threadId, {
+      markdown:
+        "Visit www.example.com or mail help@example.com.<br>Hi<!-- note --> <b>there</b>, I <3 you.",
+    });
+    expect(bodies).toEqual([
+      "Visit www.example.com or mail help@example.com.\nHi there, I <3 you.",
+    ]);
   });
   it("renders AST messages the same way", async () => {
     const { hail, bodies } = recording();
