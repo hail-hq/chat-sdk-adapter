@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Chat, NotImplementedError, type StreamChunk } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { createHailAdapter } from "../src/index.js";
+import { createHailAdapter, HailApiError } from "../src/index.js";
 const from = "+14155550100",
   peer = "+14155550200",
   secret = "whsec_test";
@@ -452,14 +452,41 @@ describe("outbound", () => {
     await expect(hail.postMessage(threadId, "")).rejects.toThrow(/empty/);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("does not retry sends or expose API error bodies", async () => {
+  it("does not retry 429 or expose API error bodies, and passes Retry-After", async () => {
     const fetch = vi.fn(
-      async () => new Response("secret provider details", { status: 429 }),
+      async () =>
+        new Response("secret provider details", {
+          status: 429,
+          headers: { "Retry-After": "7" },
+        }),
     );
-    await expect(
-      adapter({ fetch }).postMessage(threadId, "Hello"),
-    ).rejects.toThrow("Hail API request failed (429)");
+    const error = await adapter({ fetch })
+      .postMessage(threadId, "Hello")
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(HailApiError);
+    expect(error).toMatchObject({
+      message: "Hail API request failed (429)",
+      status: 429,
+      retryAfterMs: 7000,
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("reads Retry-After as an HTTP date, and leaves it out when missing", async () => {
+    const date = new Date(Date.now() + 60_000).toUTCString();
+    const dated = (await adapter({
+      fetch: async () =>
+        new Response(null, { status: 429, headers: { "Retry-After": date } }),
+    })
+      .postMessage(threadId, "Hello")
+      .catch((e: unknown) => e)) as HailApiError;
+    expect(dated.retryAfterMs).toBeGreaterThan(55_000);
+    expect(dated.retryAfterMs).toBeLessThanOrEqual(60_000);
+    const missing = (await adapter({
+      fetch: async () => new Response(null, { status: 403 }),
+    })
+      .postMessage(threadId, "Hello")
+      .catch((e: unknown) => e)) as HailApiError;
+    expect(missing).toMatchObject({ status: 403, retryAfterMs: undefined });
   });
   it("uses the versioned self-host API and requires an API key", async () => {
     const urls: string[] = [];
@@ -477,6 +504,88 @@ describe("outbound", () => {
     ).rejects.toThrow(/API key/i);
   });
 });
+describe("send retries", () => {
+  function sends(...results: (number | Error)[]) {
+    const keys: (string | null)[] = [];
+    const fetch = vi.fn(async (_url: URL, init: RequestInit) => {
+      keys.push(new Headers(init.headers).get("idempotency-key"));
+      const result = results.shift();
+      if (result instanceof Error) throw result;
+      if (result === undefined || result < 300) return Response.json(sms);
+      return new Response("busy", { status: result });
+    });
+    return { hail: adapter({ fetch }), fetch, keys };
+  }
+  async function settle<T>(promise: Promise<T>) {
+    const outcome = promise.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.runAllTimersAsync();
+    return await outcome;
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  it("sends one idempotency key per message", async () => {
+    const { hail, keys } = sends(201, 201);
+    await hail.postMessage(threadId, "Hello");
+    await hail.postMessage(threadId, "Hello");
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+  it("retries a timeout, network error, 409 or 5xx with the same key", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const timeout = new DOMException("timed out", "TimeoutError");
+    for (const first of [timeout, new TypeError("fetch failed"), 409, 502]) {
+      const { hail, fetch, keys } = sends(first, 201);
+      const { value } = (await settle(hail.postMessage(threadId, "Hello"))) as {
+        value: { id: string };
+      };
+      expect(value.id).toBe(id);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(keys[1]).toBe(keys[0]);
+    }
+  });
+  it("gives up after 3 attempts and throws the last error", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const { hail, fetch } = sends(503, 503, 503, 201);
+    const { error } = (await settle(hail.postMessage(threadId, "Hello"))) as {
+      error: HailApiError;
+    };
+    expect(error).toMatchObject({ name: "HailApiError", status: 503 });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const network = sends(
+      new TypeError("fetch failed"),
+      new TypeError("fetch failed"),
+      new TypeError("fetch failed"),
+    );
+    const failed = (await settle(
+      network.hail.postMessage(threadId, "Hello"),
+    )) as { error: Error };
+    expect(failed.error.message).toBe("fetch failed");
+    expect(network.fetch).toHaveBeenCalledTimes(3);
+  });
+  it("does not retry other client errors", async () => {
+    for (const status of [400, 401, 402, 403, 422]) {
+      const { hail, fetch } = sends(status, 201);
+      await expect(hail.postMessage(threadId, "Hello")).rejects.toMatchObject({
+        status,
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("does not retry reads or send a key with them", async () => {
+    const { hail, fetch, keys } = sends(500, 201);
+    await expect(hail.fetchMessage(threadId, id)).rejects.toMatchObject({
+      status: 500,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(keys).toEqual([null]);
+  });
+});
+
 describe("streaming", () => {
   async function* chunks<T>(...values: T[]) {
     for (const value of values) yield value;

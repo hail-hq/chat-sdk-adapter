@@ -171,7 +171,7 @@ index 0000000..844c083
 +- Markdown is sent as text with Markdown syntax. Files, attachments, and cards are rejected.
 +- Editing, deletion, and reactions throw `NotImplementedError`. `startTyping()` does nothing because SMS has no typing indicator.
 +- The adapter requires the Node.js runtime and does not support the Edge runtime.
-+- Requests time out after 30 seconds and do not follow redirects. Outbound sends are not automatically retried; a timeout does not establish that a chargeable send failed.
++- Requests time out after 30 seconds and do not follow redirects. Sends carry an idempotency key and are retried up to 2 times after a timeout or server error, so a reply is never sent twice.
 +
 +## Feature support
 +

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   Message,
   NotImplementedError,
@@ -29,6 +29,9 @@ export type {
 } from "./types.js";
 
 const SMS_MAX = 1600;
+// Waits before each send retry. Hail stores the result for each idempotency
+// key, so a retry returns the first send instead of sending again.
+const SEND_RETRY_DELAYS_MS = [1_000, 4_000];
 const TOO_LONG = "SMS text must be at most 1600 characters";
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
 const SIGNATURE = /^t=([0-9]+),v1=([a-fA-F0-9]{64})$/;
@@ -60,10 +63,23 @@ async function credential(
 }
 
 export class HailApiError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    /** Wait from Hail's Retry-After header, for example on 429. */
+    readonly retryAfterMs?: number,
+  ) {
     super(`Hail API request failed (${status})`);
     this.name = "HailApiError";
   }
+}
+function retryAfterMs(header: string | null): number | undefined {
+  if (header === null) return undefined;
+  if (/^[0-9]+$/.test(header.trim())) return Number(header) * 1000;
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(date - Date.now(), 0) : undefined;
+}
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** SMS adapter. All conversations are scoped to the configured number and one peer. */
@@ -296,21 +312,54 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
         "apiUrl must be an HTTP(S) origin without a path, credentials, query, or fragment",
       );
     }
-    const response = await (this.config.fetch ?? globalThis.fetch)(
-      new URL(path, origin),
-      {
-        method: body === undefined ? "GET" : "POST",
-        redirect: "error",
-        signal: AbortSignal.timeout(30_000),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      },
-    );
-    if (!response.ok) throw new HailApiError(response.status);
-    return await response.json();
+    // Only sends (POST) carry a key and retry. Reads fail on the first error.
+    const idempotencyKey = body === undefined ? undefined : randomUUID();
+    const retries = idempotencyKey ? SEND_RETRY_DELAYS_MS : [];
+    // The caller's signal is not checked again: once a send may have reached
+    // Hail, retries only find out what happened to it.
+    for (let attempt = 0; ; attempt++) {
+      let response: Response;
+      try {
+        response = await (this.config.fetch ?? globalThis.fetch)(
+          new URL(path, origin),
+          {
+            method: body === undefined ? "GET" : "POST",
+            redirect: "error",
+            signal: AbortSignal.timeout(30_000),
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              ...(idempotencyKey
+                ? {
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": idempotencyKey,
+                  }
+                : {}),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          },
+        );
+      } catch (error) {
+        // Network error or timeout: the send may or may not have reached Hail.
+        if (attempt >= retries.length) throw error;
+        await sleep(retries[attempt] as number);
+        continue;
+      }
+      if (response.ok) return await response.json();
+      // 409: Hail is still handling the first attempt. 5xx: server error.
+      if (
+        attempt < retries.length &&
+        (response.status === 409 || response.status >= 500)
+      ) {
+        await response.body?.cancel();
+        await sleep(retries[attempt] as number);
+        continue;
+      }
+      await response.body?.cancel();
+      throw new HailApiError(
+        response.status,
+        retryAfterMs(response.headers.get("retry-after")),
+      );
+    }
   }
 
   postMessage(
