@@ -133,6 +133,89 @@ describe("webhooks", () => {
       ).toBe(200);
     }
   });
+  it("skips texts Hail marks as STOP, START or HELP", async () => {
+    const hail = adapter();
+    const bot = new Chat({
+      userName: "test",
+      adapters: { hail },
+      state: createMemoryState(),
+    });
+    bots.push(bot);
+    const seen: string[] = [];
+    bot.onDirectMessage(async (_thread, message) => {
+      seen.push(message.text);
+    });
+    const texts: [string, unknown][] = [
+      ["STOP", "STOP"],
+      ["start", "START"],
+      ["HELP", "HELP"],
+      ["help me with my order", null],
+      ["YES", undefined],
+      ["thanks", ""],
+      ["ok", "OPTOUT"],
+    ];
+    for (const [index, [body, keyword]] of texts.entries()) {
+      const data = {
+        ...event.data,
+        id: id.replace(/.$/, String(index)),
+        body,
+        ...(keyword === undefined ? {} : { compliance_keyword: keyword }),
+      };
+      const response = await bot.webhooks.hail(
+        signed(JSON.stringify({ ...event, data })),
+      );
+      expect(response.status).toBe(200);
+    }
+    // A future keyword is skipped too; an empty value is not a keyword.
+    expect(seen).toEqual(["help me with my order", "YES", "thanks"]);
+  });
+  it("rejects bodies over 1 MB", async () => {
+    const cap = 1024 * 1024;
+    // Declared size: refused before the body is read.
+    const small = signed("{}");
+    const declared = new Request(small.url, {
+      method: "POST",
+      body: "{}",
+      headers: {
+        "x-hail-signature": small.headers.get("x-hail-signature") as string,
+        "content-length": String(cap + 1),
+      },
+    });
+    expect((await adapter().handleWebhook(declared)).status).toBe(413);
+    expect(declared.bodyUsed).toBe(false);
+    // No declared size: reading stops 1 byte past the cap.
+    const over = signed("x".repeat(cap + 1));
+    expect(over.headers.get("content-length")).toBeNull();
+    expect((await adapter().handleWebhook(over)).status).toBe(413);
+    // At the cap, the body is read and checked as usual.
+    const atCap = await adapter().handleWebhook(signed("x".repeat(cap)));
+    expect(atCap.status).toBe(400);
+    expect(await atCap.text()).toBe("Invalid JSON");
+  });
+  it("checks the signature header before reading the body", async () => {
+    const unsigned = new Request("https://bot.example", {
+      method: "POST",
+      body: "x".repeat(2 * 1024 * 1024),
+    });
+    expect((await adapter().handleWebhook(unsigned)).status).toBe(401);
+    expect(unsigned.bodyUsed).toBe(false);
+  });
+  it("answers 400 when the body cannot be read", async () => {
+    const request = signed("{}");
+    const broken = new Request(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: new ReadableStream({
+        pull(controller) {
+          controller.error(new Error("connection reset"));
+        },
+      }),
+      duplex: "half",
+    } as RequestInit);
+    const response = await adapter().handleWebhook(broken);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Could not read body");
+  });
   it("ignores other events and other Hail numbers", async () => {
     expect(
       (

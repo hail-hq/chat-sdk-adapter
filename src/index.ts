@@ -53,6 +53,38 @@ function isSms(value: unknown): value is HailSms {
     Number.isFinite(Date.parse(value.requested_at))
   );
 }
+// Hail webhook bodies are a few KB. Anything bigger is not from Hail.
+const WEBHOOK_MAX_BYTES = 1024 * 1024;
+/**
+ * Read at most `max` bytes. Returns 413 when the body is bigger, and 400 when
+ * the sender drops the upload. Other errors (a locked body) still throw.
+ */
+async function readBody(
+  request: Request,
+  max: number,
+): Promise<Uint8Array | 400 | 413> {
+  if (Number(request.headers.get("content-length")) > max) return 413;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      return 400;
+    }
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > max) {
+      reader.cancel().catch(() => undefined);
+      return 413;
+    }
+    parts.push(chunk.value);
+  }
+  return Buffer.concat(parts, size);
+}
 async function credential(
   value: HailCredential | undefined,
 ): Promise<string | undefined> {
@@ -151,7 +183,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
     if (!secret)
       return new Response("Webhook secret is not configured", { status: 503 });
-    const body = new Uint8Array(await request.arrayBuffer());
+    // Check the header first, so a request without a valid header is not read.
     const match = SIGNATURE.exec(request.headers.get("x-hail-signature") ?? "");
     if (
       !match ||
@@ -160,6 +192,10 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     ) {
       return new Response("Invalid signature", { status: 401 });
     }
+    const body = await readBody(request, WEBHOOK_MAX_BYTES);
+    if (body === 413) return new Response("Payload too large", { status: 413 });
+    if (body === 400)
+      return new Response("Could not read body", { status: 400 });
     const expected = createHmac("sha256", secret)
       .update(`${match[1]}.`)
       .update(body)
@@ -191,6 +227,13 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     if (!phone(data.from) || typeof data.body !== "string")
       return new Response(null, { status: 200 });
     if (data.to !== this.fromNumber())
+      return new Response(null, { status: 200 });
+    // Hail (or the carrier) answers STOP, START and HELP. The bot must not.
+    // Any other non-empty value is a keyword Hail added later: skip it too.
+    if (
+      typeof data.compliance_keyword === "string" &&
+      data.compliance_keyword.trim() !== ""
+    )
       return new Response(null, { status: 200 });
     if (!this.chat)
       return new Response("Adapter is not initialized", { status: 503 });
