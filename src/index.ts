@@ -55,25 +55,33 @@ function isSms(value: unknown): value is HailSms {
 }
 // Hail webhook bodies are a few KB. Anything bigger is not from Hail.
 const WEBHOOK_MAX_BYTES = 1024 * 1024;
-/** Read at most `max` bytes. Returns null when the body is bigger. */
+/**
+ * Read at most `max` bytes. Returns 413 when the body is bigger, and 400 when
+ * the sender drops the upload. Other errors (a locked body) still throw.
+ */
 async function readBody(
   request: Request,
   max: number,
-): Promise<Uint8Array | null> {
-  if (Number(request.headers.get("content-length")) > max) return null;
+): Promise<Uint8Array | 400 | 413> {
+  if (Number(request.headers.get("content-length")) > max) return 413;
   if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
   const parts: Uint8Array[] = [];
   let size = 0;
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel();
-      return null;
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      return 400;
     }
-    parts.push(value);
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > max) {
+      reader.cancel().catch(() => undefined);
+      return 413;
+    }
+    parts.push(chunk.value);
   }
   return Buffer.concat(parts, size);
 }
@@ -175,7 +183,7 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     );
     if (!secret)
       return new Response("Webhook secret is not configured", { status: 503 });
-    // Check the header before reading, so unsigned requests cost nothing.
+    // Check the header first, so a request without a valid header is not read.
     const match = SIGNATURE.exec(request.headers.get("x-hail-signature") ?? "");
     if (
       !match ||
@@ -184,14 +192,10 @@ export class HailAdapter implements Adapter<HailThreadId, HailSms> {
     ) {
       return new Response("Invalid signature", { status: 401 });
     }
-    let body: Uint8Array | null;
-    try {
-      body = await readBody(request, WEBHOOK_MAX_BYTES);
-    } catch {
-      // The sender closed the connection mid-upload.
+    const body = await readBody(request, WEBHOOK_MAX_BYTES);
+    if (body === 413) return new Response("Payload too large", { status: 413 });
+    if (body === 400)
       return new Response("Could not read body", { status: 400 });
-    }
-    if (!body) return new Response("Payload too large", { status: 413 });
     const expected = createHmac("sha256", secret)
       .update(`${match[1]}.`)
       .update(body)

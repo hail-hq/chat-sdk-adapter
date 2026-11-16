@@ -188,9 +188,9 @@ describe("webhooks", () => {
     expect(over.headers.get("content-length")).toBeNull();
     expect((await adapter().handleWebhook(over)).status).toBe(413);
     // At the cap, the body is read and checked as usual.
-    expect(
-      (await adapter().handleWebhook(signed("x".repeat(cap)))).status,
-    ).toBe(400);
+    const atCap = await adapter().handleWebhook(signed("x".repeat(cap)));
+    expect(atCap.status).toBe(400);
+    expect(await atCap.text()).toBe("Invalid JSON");
   });
   it("checks the signature header before reading the body", async () => {
     const unsigned = new Request("https://bot.example", {
@@ -212,7 +212,9 @@ describe("webhooks", () => {
       }),
       duplex: "half",
     } as RequestInit);
-    expect((await adapter().handleWebhook(broken)).status).toBe(400);
+    const response = await adapter().handleWebhook(broken);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Could not read body");
   });
   it("ignores other events and other Hail numbers", async () => {
     expect(
